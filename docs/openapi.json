@@ -1,0 +1,894 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Stellar Jay HTTP API",
+    "version": "0.5.0",
+    "summary": "Safe write access for AI agents: an append-only, attributed business fact store.",
+    "description": "Every change is kept and attributed to the credential that made it. Agents usually connect through the MCP server (docs/mcp.md); this is the HTTP API underneath. Write rules: llm.md.",
+    "license": {
+      "name": "AGPL-3.0-or-later",
+      "identifier": "AGPL-3.0-or-later"
+    }
+  },
+  "externalDocs": {
+    "url": "https://github.com/kyle-visner/stellarjay/blob/main/docs/api.md"
+  },
+  "servers": [
+    {
+      "url": "https://{store}",
+      "variables": {
+        "store": {
+          "default": "store.example.com"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "live",
+        "summary": "Process is running",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "live"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "ready",
+        "summary": "Store head verified and ready",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ready"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/root": {
+      "get": {
+        "operationId": "getRoot",
+        "summary": "Current root",
+        "description": "Requires reader. The root is an empty string for a new store.",
+        "responses": {
+          "200": {
+            "description": "Current root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Root"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "operationId": "listEvents",
+        "summary": "Replay history",
+        "description": "Requires reader. Capture root from the first page and send it on every later page of the same scan.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Return events strictly after this hash.",
+            "schema": {
+              "$ref": "#/components/schemas/Hash"
+            }
+          },
+          {
+            "name": "root",
+            "in": "query",
+            "description": "Observed root that bounds the page.",
+            "schema": {
+              "$ref": "#/components/schemas/Hash"
+            }
+          },
+          {
+            "name": "include_payload",
+            "in": "query",
+            "description": "Decrypt and include payloads; pages are then limited to 100 events.",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "507": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "post": {
+        "operationId": "appendEvent",
+        "summary": "Append an event",
+        "description": "Requires writer. Send the root read just before the write as expected_root, and a stable Idempotency-Key per logical operation. A retry with the same key and the same type, entity_id, command and payload replays the original event.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 200
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppendResult"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Replayed an earlier identical request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppendResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/events/payloads": {
+      "post": {
+        "operationId": "getPayloads",
+        "summary": "Fetch selected payloads",
+        "description": "Requires reader. 1-100 unique event IDs at or before root.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "root",
+                  "event_ids"
+                ],
+                "properties": {
+                  "root": {
+                    "$ref": "#/components/schemas/Hash"
+                  },
+                  "event_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/components/schemas/Hash"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payloads in request order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "root": {
+                      "$ref": "#/components/schemas/Hash"
+                    },
+                    "payloads": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "event_id": {
+                            "$ref": "#/components/schemas/Hash"
+                          },
+                          "hash": {
+                            "$ref": "#/components/schemas/Hash"
+                          },
+                          "payload": {}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "507": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/refs/{name}": {
+      "parameters": [
+        {
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getRef",
+        "summary": "Read a named ref",
+        "responses": {
+          "200": {
+            "description": "Ref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Root"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putRef",
+        "summary": "Move a named ref",
+        "description": "Requires writer. expected_root is \"\" only when creating the ref.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "root",
+                  "expected_root"
+                ],
+                "properties": {
+                  "root": {
+                    "$ref": "#/components/schemas/Hash"
+                  },
+                  "expected_root": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/verify": {
+      "post": {
+        "operationId": "verify",
+        "summary": "Verify all history and payloads",
+        "description": "Requires admin.",
+        "responses": {
+          "200": {
+            "description": "Verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/snapshots": {
+      "post": {
+        "operationId": "createSnapshot",
+        "summary": "Create a snapshot archive",
+        "description": "Requires admin. The archive does not include the data key.",
+        "responses": {
+          "201": {
+            "description": "Snapshot written",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "root": {
+                      "$ref": "#/components/schemas/Hash"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "nodes": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "507": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/check-root": {
+      "get": {
+        "operationId": "checkRoot",
+        "summary": "Check an off-host root pin",
+        "description": "Requires admin.",
+        "parameters": [
+          {
+            "name": "root",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Hash"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pin is in live history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/catalog": {
+      "get": {
+        "operationId": "getCatalog",
+        "summary": "Read the type catalog",
+        "description": "Requires operator or admin.",
+        "responses": {
+          "200": {
+            "description": "Catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enforced": {
+                      "type": "boolean"
+                    },
+                    "entries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string"
+                          },
+                          "commands": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/catalog/entries": {
+      "post": {
+        "operationId": "installCatalogEntry",
+        "summary": "Install an event type",
+        "description": "Requires operator or admin. Turns catalog enforcement on.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "commands": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Already installed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/admin/catalog/entries/{type}": {
+      "delete": {
+        "operationId": "removeCatalogEntry",
+        "summary": "Remove an event type",
+        "description": "Requires operator or admin. Enforcement stays on.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A reader, writer, operator or admin token from stellarjay-server add-token."
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "error"
+              ],
+              "properties": {
+                "error": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "examples": [
+                        "conflict",
+                        "permission_denied",
+                        "validation_error",
+                        "not_found",
+                        "rate_limited",
+                        "integrity_error",
+                        "capacity_exceeded"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Hash": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "Root": {
+        "type": "object",
+        "required": [
+          "root"
+        ],
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "A hash, or empty for an empty store."
+          }
+        }
+      },
+      "AppendRequest": {
+        "type": "object",
+        "required": [
+          "type",
+          "command",
+          "payload",
+          "expected_root"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "examples": [
+              "business.fact"
+            ]
+          },
+          "entity_id": {
+            "type": "string",
+            "examples": [
+              "customer:42"
+            ]
+          },
+          "command": {
+            "type": "string",
+            "examples": [
+              "fact assert"
+            ]
+          },
+          "payload": {
+            "description": "Any JSON. Facts use predicate, value, observed_at, evidence, confidence, supersedes, retracts and reason."
+          },
+          "expected_root": {
+            "type": "string",
+            "description": "Root read just before this write; \"\" only for the first event."
+          }
+        }
+      },
+      "AppendResult": {
+        "type": "object",
+        "properties": {
+          "hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "root": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "hash": {
+            "$ref": "#/components/schemas/Hash"
+          },
+          "type": {
+            "type": "string"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hash"
+            }
+          },
+          "actor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "payload": {}
+        }
+      },
+      "EventsPage": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "root": {
+            "type": "string"
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 //go:build aix || (solaris && !illumos)
 
-package jaybase
+package stellarjay
 
 import (
 	"errors"

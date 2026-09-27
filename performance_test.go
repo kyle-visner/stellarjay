@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ type benchmarkEventPayload struct {
 }
 
 func BenchmarkAppendEvent1KB(b *testing.B) {
-	store := newBenchmarkJaybaseStore(b)
+	store := newBenchmarkStellarJayStore(b)
 	payload := benchmarkEventPayload{Body: strings.Repeat("x", 1024)}
 
 	b.ReportAllocs()
@@ -34,7 +34,7 @@ func BenchmarkAppendEvent1KB(b *testing.B) {
 func BenchmarkAuditLog(b *testing.B) {
 	for _, eventCount := range []int{100, 1000} {
 		b.Run(fmt.Sprintf("%dEvents", eventCount), func(b *testing.B) {
-			store := newBenchmarkJaybaseStore(b)
+			store := newBenchmarkStellarJayStore(b)
 			appendBenchmarkEvents(b, store, eventCount, 256)
 
 			b.ReportAllocs()
@@ -53,7 +53,7 @@ func BenchmarkAuditLog(b *testing.B) {
 }
 
 func BenchmarkNodePayloadDecrypt1KB(b *testing.B) {
-	store := newBenchmarkJaybaseStore(b)
+	store := newBenchmarkStellarJayStore(b)
 	appendBenchmarkEvents(b, store, 128, 1024)
 	nodes, err := store.AuditLog()
 	if err != nil {
@@ -74,7 +74,7 @@ func BenchmarkNodePayloadDecrypt1KB(b *testing.B) {
 	}
 }
 
-func newBenchmarkJaybaseStore(b *testing.B) *Store {
+func newBenchmarkStellarJayStore(b *testing.B) *Store {
 	b.Helper()
 	store, err := OpenStore(b.TempDir())
 	if err != nil {

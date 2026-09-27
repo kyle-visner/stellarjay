@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	jaybase "github.com/kyle-visner/jaybase"
+	stellarjay "github.com/kyle-visner/stellarjay"
 )
 
 const defaultMaxBodyBytes int64 = 1 << 20
@@ -29,7 +29,7 @@ const defaultFailedAuthLimitPerMinute = 30
 const maxPayloadBatchEvents = 100
 
 type Options struct {
-	Store                    *jaybase.Store
+	Store                    *stellarjay.Store
 	Auth                     *Authenticator
 	BackupDir                string
 	Logger                   *slog.Logger
@@ -48,7 +48,7 @@ type Options struct {
 }
 
 type API struct {
-	store                *jaybase.Store
+	store                *stellarjay.Store
 	auth                 *Authenticator
 	backupDir            string
 	logger               *slog.Logger
@@ -108,6 +108,9 @@ func (a *API) Handler() http.Handler {
 }
 
 func (a *API) routes() {
+	a.mux.HandleFunc("GET /{$}", a.siteHome)
+	a.mux.HandleFunc("GET /llm.txt", a.siteLLM)
+	a.mux.HandleFunc("GET /llms.txt", a.siteLLM)
 	a.mux.HandleFunc("GET /health/live", a.live)
 	a.mux.HandleFunc("GET /health/ready", a.ready)
 	a.mux.Handle("GET /v1/root", a.require(RoleReader, http.HandlerFunc(a.root)))
@@ -132,7 +135,7 @@ func (a *API) ready(w http.ResponseWriter, _ *http.Request) {
 	if err := a.store.VerifyHead(); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"status": "not_ready",
-			"error":  jaybase.AppError{Code: jaybase.ErrIntegrity, Message: "store head verification failed"},
+			"error":  stellarjay.AppError{Code: stellarjay.ErrIntegrity, Message: "store head verification failed"},
 		})
 		return
 	}
@@ -140,7 +143,7 @@ func (a *API) ready(w http.ResponseWriter, _ *http.Request) {
 	if err != nil || !contains {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"status": "not_ready",
-			"error":  jaybase.AppError{Code: jaybase.ErrIntegrity, Message: "configured minimum root is absent from live history"},
+			"error":  stellarjay.AppError{Code: stellarjay.ErrIntegrity, Message: "configured minimum root is absent from live history"},
 		})
 		return
 	}
@@ -166,12 +169,12 @@ type appendRequest struct {
 
 func (a *API) appendEvent(w http.ResponseWriter, r *http.Request) {
 	if !hasJSONContentType(r) {
-		writeError(w, http.StatusUnsupportedMediaType, jaybase.ErrValidation, "Content-Type must be application/json")
+		writeError(w, http.StatusUnsupportedMediaType, stellarjay.ErrValidation, "Content-Type must be application/json")
 		return
 	}
 	requestKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if len(requestKey) < 8 || len(requestKey) > 200 {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "Idempotency-Key must be between 8 and 200 characters")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "Idempotency-Key must be between 8 and 200 characters")
 		return
 	}
 	var request appendRequest
@@ -180,33 +183,49 @@ func (a *API) appendEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.ExpectedRoot == nil {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "expected_root is required; use an empty string for the first event")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "expected_root is required; use an empty string for the first event")
 		return
 	}
 	if len(request.Payload) == 0 {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "payload is required")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "payload is required")
 		return
 	}
 	principal := principalFromContext(r.Context())
 	if !a.authorizeAppend(w, principal, request.Type, request.Command) {
 		return
 	}
-	canonical, err := json.Marshal(request)
+	// The request hash covers what the event says, not the root it was aimed
+	// at, so a retry of a committed write replays even after other writes have
+	// moved the root. Requests recorded before this rule hashed the whole body,
+	// expected_root included; that hash is still accepted.
+	canonical, err := json.Marshal(struct {
+		Type     string          `json:"type"`
+		EntityID string          `json:"entity_id,omitempty"`
+		Command  string          `json:"command"`
+		Payload  json.RawMessage `json:"payload"`
+	}{request.Type, request.EntityID, request.Command, request.Payload})
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	legacyCanonical, err := json.Marshal(request)
 	if err != nil {
 		writeAPIError(w, err)
 		return
 	}
 	requestIDSum := sha256.Sum256([]byte(principal.ID + "\x00" + requestKey))
 	requestHashSum := sha256.Sum256(canonical)
+	legacyHashSum := sha256.Sum256(legacyCanonical)
 	hash, replayed, err := a.store.AppendIdempotent(
-		jaybase.Context{Actor: principal.ID, Role: principal.Role.String()},
-		jaybase.AppendOptions{
+		stellarjay.Context{Actor: principal.ID, Role: principal.Role.String()},
+		stellarjay.AppendOptions{
 			Type: request.Type, EntityID: request.EntityID, Command: request.Command,
 			Payload: request.Payload,
 		},
 		*request.ExpectedRoot,
 		"sha256:"+hex.EncodeToString(requestIDSum[:]),
 		"sha256:"+hex.EncodeToString(requestHashSum[:]),
+		"sha256:"+hex.EncodeToString(legacyHashSum[:]),
 	)
 	if err != nil {
 		writeAPIError(w, err)
@@ -244,7 +263,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 1000 {
-			writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "limit must be between 1 and 1000")
+			writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "limit must be between 1 and 1000")
 			return
 		}
 		limit = parsed
@@ -305,7 +324,7 @@ func (a *API) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if int64(len(encoded)) > a.maxBody {
-		writeError(w, http.StatusInsufficientStorage, jaybase.ErrCapacity, "payload response exceeds the configured size limit")
+		writeError(w, http.StatusInsufficientStorage, stellarjay.ErrCapacity, "payload response exceeds the configured size limit")
 		return
 	}
 	setPayloadReadAudit(w, "retrieved", page.Root, eventIDs)
@@ -325,7 +344,7 @@ type payloadResponse struct {
 
 func (a *API) eventPayloads(w http.ResponseWriter, r *http.Request) {
 	if !hasJSONContentType(r) {
-		writeError(w, http.StatusUnsupportedMediaType, jaybase.ErrValidation, "Content-Type must be application/json")
+		writeError(w, http.StatusUnsupportedMediaType, stellarjay.ErrValidation, "Content-Type must be application/json")
 		return
 	}
 	var request payloadBatchRequest
@@ -338,16 +357,16 @@ func (a *API) eventPayloads(w http.ResponseWriter, r *http.Request) {
 		request.EventIDs[i] = strings.TrimSpace(request.EventIDs[i])
 	}
 	if len(request.EventIDs) < 1 || len(request.EventIDs) > maxPayloadBatchEvents {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "event_ids must contain between 1 and 100 identities")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "event_ids must contain between 1 and 100 identities")
 		return
 	}
 	if !validEventID(request.Root) {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "root must be a SHA-256 event identity")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "root must be a SHA-256 event identity")
 		return
 	}
 	for _, eventID := range request.EventIDs {
 		if !validEventID(eventID) {
-			writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "event_ids must contain SHA-256 event identities")
+			writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "event_ids must contain SHA-256 event identities")
 			return
 		}
 	}
@@ -372,7 +391,7 @@ func (a *API) eventPayloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if int64(len(encoded)) > a.maxBody {
-		writeError(w, http.StatusInsufficientStorage, jaybase.ErrCapacity, "payload response exceeds the configured size limit")
+		writeError(w, http.StatusInsufficientStorage, stellarjay.ErrCapacity, "payload response exceeds the configured size limit")
 		return
 	}
 	setPayloadReadAudit(w, "retrieved", request.Root, request.EventIDs)
@@ -402,11 +421,11 @@ func (a *API) putNamedRef(w http.ResponseWriter, r *http.Request) {
 	setRefAudit(w, name)
 	principal := principalFromContext(r.Context())
 	if err := principal.Allow.authorizeRef(name); err != nil {
-		writeError(w, http.StatusForbidden, jaybase.ErrPermission, err.Error())
+		writeError(w, http.StatusForbidden, stellarjay.ErrPermission, err.Error())
 		return
 	}
 	if !hasJSONContentType(r) {
-		writeError(w, http.StatusUnsupportedMediaType, jaybase.ErrValidation, "Content-Type must be application/json")
+		writeError(w, http.StatusUnsupportedMediaType, stellarjay.ErrValidation, "Content-Type must be application/json")
 		return
 	}
 	var request struct {
@@ -418,7 +437,7 @@ func (a *API) putNamedRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.ExpectedRoot == nil {
-		writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "expected_root is required; use an empty string to create the ref")
+		writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "expected_root is required; use an empty string to create the ref")
 		return
 	}
 	if err := a.store.WriteNamedRefAt(name, request.Root, *request.ExpectedRoot); err != nil {
@@ -433,7 +452,7 @@ func (a *API) snapshot(w http.ResponseWriter, _ *http.Request) {
 	a.snapshotMu.Lock()
 	defer a.snapshotMu.Unlock()
 	if a.backupDir == "" {
-		writeError(w, http.StatusServiceUnavailable, jaybase.ErrValidation, "snapshot directory is not configured")
+		writeError(w, http.StatusServiceUnavailable, stellarjay.ErrValidation, "snapshot directory is not configured")
 		return
 	}
 	if err := os.MkdirAll(a.backupDir, 0o700); err != nil {
@@ -451,7 +470,7 @@ func (a *API) snapshot(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	if available < a.snapshotMinFreeBytes || available-a.snapshotMinFreeBytes < estimate {
-		writeError(w, http.StatusInsufficientStorage, jaybase.ErrCapacity, "insufficient free space for a safe snapshot")
+		writeError(w, http.StatusInsufficientStorage, stellarjay.ErrCapacity, "insufficient free space for a safe snapshot")
 		return
 	}
 	info, err := a.store.CreateSnapshot(a.backupDir)
@@ -467,6 +486,20 @@ func (a *API) snapshot(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusCreated, info)
 }
 
+// snapshotStamp returns the timestamp part of a managed archive name, or "" when
+// the file is not a managed archive.
+func snapshotStamp(name string) string {
+	if !strings.HasSuffix(name, ".tar.gz") {
+		return ""
+	}
+	for _, prefix := range []string{"stellarjay-", "jaybase-"} {
+		if stamp, ok := strings.CutPrefix(name, prefix); ok {
+			return stamp
+		}
+	}
+	return ""
+}
+
 func pruneSnapshots(dir string, retain int) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -475,11 +508,13 @@ func pruneSnapshots(dir string, retain int) error {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.Type().IsRegular() && strings.HasPrefix(name, "jaybase-") && strings.HasSuffix(name, ".tar.gz") {
+		if entry.Type().IsRegular() && snapshotStamp(name) != "" {
 			names = append(names, name)
 		}
 	}
-	slices.Sort(names)
+	// Archives written before the rename use the jaybase- prefix; order by
+	// timestamp so both kinds share one retention window.
+	slices.SortFunc(names, func(a, b string) int { return strings.Compare(snapshotStamp(a), snapshotStamp(b)) })
 	for len(names) > retain {
 		if err := os.Remove(filepath.Join(dir, names[0])); err != nil {
 			return err
@@ -510,7 +545,7 @@ func (a *API) checkRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !contains {
-		writeError(w, http.StatusConflict, jaybase.ErrIntegrity, "expected root is absent from live history")
+		writeError(w, http.StatusConflict, stellarjay.ErrIntegrity, "expected root is absent from live history")
 		return
 	}
 	setRequestAudit(w, "check_root", "present", root, 0)
@@ -527,8 +562,8 @@ func (a *API) require(minimum Role, next http.Handler) http.Handler {
 				writeRateLimit(w)
 				return
 			}
-			w.Header().Set("WWW-Authenticate", `Bearer realm="jaybase"`)
-			writeError(w, http.StatusUnauthorized, jaybase.ErrPermission, "valid bearer token required")
+			w.Header().Set("WWW-Authenticate", `Bearer realm="stellarjay"`)
+			writeError(w, http.StatusUnauthorized, stellarjay.ErrPermission, "valid bearer token required")
 			return
 		}
 		principal, ok := a.auth.Authenticate(strings.TrimSpace(parts[1]))
@@ -538,8 +573,8 @@ func (a *API) require(minimum Role, next http.Handler) http.Handler {
 				writeRateLimit(w)
 				return
 			}
-			w.Header().Set("WWW-Authenticate", `Bearer realm="jaybase"`)
-			writeError(w, http.StatusUnauthorized, jaybase.ErrPermission, "valid bearer token required")
+			w.Header().Set("WWW-Authenticate", `Bearer realm="stellarjay"`)
+			writeError(w, http.StatusUnauthorized, stellarjay.ErrPermission, "valid bearer token required")
 			return
 		}
 		setRequestPrincipal(w, principal.ID, principal.Role.String())
@@ -548,7 +583,7 @@ func (a *API) require(minimum Role, next http.Handler) http.Handler {
 			return
 		}
 		if !roleSatisfies(principal.Role, minimum) {
-			writeError(w, http.StatusForbidden, jaybase.ErrPermission, "credential does not have permission for this operation")
+			writeError(w, http.StatusForbidden, stellarjay.ErrPermission, "credential does not have permission for this operation")
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
@@ -560,7 +595,7 @@ func (a *API) requireMutation(minimum Role, next http.Handler) http.Handler {
 	return a.require(minimum, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contains, err := a.minimumRootPresent()
 		if err != nil || !contains {
-			writeError(w, http.StatusServiceUnavailable, jaybase.ErrIntegrity, "configured minimum root is absent from live history")
+			writeError(w, http.StatusServiceUnavailable, stellarjay.ErrIntegrity, "configured minimum root is absent from live history")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -598,10 +633,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, dst any)
 func writeDecodeError(w http.ResponseWriter, err error) {
 	var maxBytesError *http.MaxBytesError
 	if errors.As(err, &maxBytesError) {
-		writeError(w, http.StatusRequestEntityTooLarge, jaybase.ErrValidation, "request body exceeds the configured size limit")
+		writeError(w, http.StatusRequestEntityTooLarge, stellarjay.ErrValidation, "request body exceeds the configured size limit")
 		return
 	}
-	writeError(w, http.StatusBadRequest, jaybase.ErrValidation, "request body must contain exactly one valid JSON object")
+	writeError(w, http.StatusBadRequest, stellarjay.ErrValidation, "request body must contain exactly one valid JSON object")
 }
 
 func hasJSONContentType(r *http.Request) bool {
@@ -610,21 +645,21 @@ func hasJSONContentType(r *http.Request) bool {
 }
 
 func writeAPIError(w http.ResponseWriter, err error) {
-	var appErr *jaybase.AppError
+	var appErr *stellarjay.AppError
 	if errors.As(err, &appErr) {
 		status := http.StatusInternalServerError
 		switch appErr.Code {
-		case jaybase.ErrValidation:
+		case stellarjay.ErrValidation:
 			status = http.StatusBadRequest
-		case jaybase.ErrPermission:
+		case stellarjay.ErrPermission:
 			status = http.StatusForbidden
-		case jaybase.ErrNotFound:
+		case stellarjay.ErrNotFound:
 			status = http.StatusNotFound
-		case jaybase.ErrConflict:
+		case stellarjay.ErrConflict:
 			status = http.StatusConflict
-		case jaybase.ErrIntegrity:
+		case stellarjay.ErrIntegrity:
 			status = http.StatusInternalServerError
-		case jaybase.ErrCapacity:
+		case stellarjay.ErrCapacity:
 			status = http.StatusInsufficientStorage
 		}
 		writeError(w, status, appErr.Code, appErr.Message)
@@ -633,8 +668,8 @@ func writeAPIError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 }
 
-func writeError(w http.ResponseWriter, status int, code jaybase.ErrorCode, message string) {
-	writeJSON(w, status, map[string]any{"error": jaybase.AppError{Code: code, Message: message}})
+func writeError(w http.ResponseWriter, status int, code stellarjay.ErrorCode, message string) {
+	writeJSON(w, status, map[string]any{"error": stellarjay.AppError{Code: code, Message: message}})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

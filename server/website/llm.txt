@@ -1,0 +1,74 @@
+# Stellar Jay — agent setup
+
+This origin is a Stellar Jay store: safe write access for AI agents. Every change is kept and attributed to the agent that made it, and any change can be undone.
+
+Stellar Jay is the source of truth. Connect agents with the one MCP server below, a CLI (Magpie, Martin, AvianSuite), or the HTTP API. Do not invent a new MCP server for each use case.
+
+## Connect over MCP (recommended)
+
+```json
+{"mcpServers": {"aviansuite": {"command": "stellarjay-mcp", "env": {"STELLARJAY_URL": "https://THIS-HOST", "STELLARJAY_TOKEN": "writer-token"}}}}
+```
+
+Install with `go install github.com/kyle-visner/stellarjay/cmd/stellarjay-mcp@latest`. Tools: record_fact, correct_fact, retract_fact, get_entity, list_changes, undo_changes, save_checkpoint, status. Details: https://github.com/kyle-visner/stellarjay/blob/main/docs/mcp.md
+
+## Connect
+
+```sh
+export STELLARJAY_URL='https://THIS-HOST'   # this origin, no path, no trailing slash
+export STELLARJAY_TOKEN='writer-or-reader-token'
+```
+
+- `STELLARJAY_URL` is an HTTPS origin only. No credentials, path, query, or fragment.
+- `STELLARJAY_TOKEN` lives only in the environment (or a secret manager that injects the env). Send it as `Authorization: Bearer …` on `/v1` requests.
+- Never put the token in a flag, URL, payload, file in git, log, ticket, or prompt.
+- Do not use an AvianSuite “connected agent” token, a Magpie MCP token, or any other app bearer here. Those are not Stellar Jay credentials.
+
+## Prove the link
+
+```sh
+curl -fsS "$STELLARJAY_URL/health/ready"
+curl -fsS -H "Authorization: Bearer $STELLARJAY_TOKEN" "$STELLARJAY_URL/v1/root"
+```
+
+Ready returns JSON `{"status":"ready"}` with no token. Root requires the bearer and returns `{"root":""}` on an empty store or `{"root":"sha256:…"}` after writes.
+
+If `/health/ready` is AvianSuite (`"service":"aviansuite"`) or there is no `/v1/root`, you pointed at the wrong host. AvianSuite UI is not Stellar Jay.
+
+## Use a CLI (preferred)
+
+Install the CLI you need. Point it at the same env. Magpie and Martin read `JAYBASE_URL` and `JAYBASE_TOKEN` until they are renamed, so export those too.
+
+```sh
+# Magpie (accounting)
+magpie --actor owner init
+magpie --actor owner book settings get
+
+# AvianSuite (generic lists)
+aviansuite --actor owner init
+aviansuite --actor owner table create --slug things --title Things --id-prefix thing --primary name
+```
+
+`--actor` is a domain identity, not authentication. Stellar Jay authenticates the bearer. Do not pass `--store` when `STELLARJAY_URL` is set.
+
+A new inventory (or any other) CLI should speak this same HTTP API. It should not require a new MCP endpoint on this host.
+
+## Call the API yourself
+
+You may skip CLIs and use curl. Full write/replay rules: https://github.com/kyle-visner/stellarjay/blob/main/llm.md
+
+Minimum write:
+
+1. `GET /v1/root` → `expected_root` (`""` only for the first event).
+2. `POST /v1/events` with `Authorization`, `Content-Type: application/json`, and `Idempotency-Key` (8–200 chars, stable per logical op).
+3. On `409 conflict`, re-read root and reconcile. Do not mint a new idempotency key for the same operation.
+4. Replay with `GET /v1/events`. Payloads are omitted until `POST /v1/events/payloads`.
+
+There is no update or delete. Corrections are new events.
+
+## Do not
+
+- Do not start a separate MCP server per app. Use stellarjay-mcp.
+- Do not read or edit `objects/`, `refs/`, or `keys/` on disk.
+- Do not put `STELLARJAY_TOKEN` in `STELLARJAY_URL`.
+- Do not treat a 401 as “need a different product’s token.” Rotate or use the Stellar Jay writer/reader token for this store.

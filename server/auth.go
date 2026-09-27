@@ -296,7 +296,7 @@ func writeCredentialFile(path string, file credentialFile) error {
 	}
 	contents = append(contents, '\n')
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jaybase-auth-*.json")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-auth-*.json")
 	if err != nil {
 		return err
 	}

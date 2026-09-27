@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	jaybase "github.com/kyle-visner/jaybase"
+	stellarjay "github.com/kyle-visner/stellarjay"
 )
 
 func digestToken(token string) string {
@@ -107,7 +107,7 @@ func TestScopedCredentialAndCatalogDoNotRewriteHistory(t *testing.T) {
 		}},
 		{"id": "schema", "role": "operator", "sha256": digestToken(operator)},
 	})
-	store, err := jaybase.OpenStore(t.TempDir())
+	store, err := stellarjay.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

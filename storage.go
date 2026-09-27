@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"crypto/aes"
@@ -152,7 +152,7 @@ func OpenStoreWithDataKey(dir, encodedKey string) (*Store, error) {
 
 func openStore(dir, encodedKey string, requireExplicitKey bool) (*Store, error) {
 	if dir == "" {
-		dir = ".jaybase"
+		dir = DefaultDir()
 	}
 	s := &Store{
 		dir: dir, now: func() time.Time { return time.Now().UTC() },
@@ -376,7 +376,9 @@ func (s *Store) AppendAt(ctx Context, opts AppendOptions, expectedRoot string) (
 // AppendIdempotent combines optimistic concurrency with a durable request ID.
 // A retry of the same request returns its original node even if newer nodes have
 // since been appended. Reusing a request ID for different content is rejected.
-func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, requestID, requestHash string) (string, bool, error) {
+// equivalentHashes are older spellings of requestHash that also count as the
+// same content, so requests recorded under a previous hashing rule still replay.
+func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, requestID, requestHash string, equivalentHashes ...string) (string, bool, error) {
 	requestID = strings.TrimSpace(requestID)
 	requestHash = strings.TrimSpace(requestHash)
 	if requestID == "" || requestHash == "" {
@@ -387,10 +389,15 @@ func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, 
 	defer s.mu.Unlock()
 
 	if record, ok := s.requestIndex[requestID]; ok {
-		if record.RequestHash != requestHash {
-			return "", false, appErr(ErrConflict, "request ID was already used for different content")
+		if record.RequestHash == requestHash {
+			return record.Hash, true, nil
 		}
-		return record.Hash, true, nil
+		for _, equivalent := range equivalentHashes {
+			if equivalent != "" && record.RequestHash == equivalent {
+				return record.Hash, true, nil
+			}
+		}
+		return "", false, appErr(ErrConflict, "request ID was already used for different content")
 	}
 
 	opts.RequestID = requestID
@@ -856,7 +863,7 @@ func validateHash(hash string) error {
 }
 
 func loadOrCreateKey(dir string) ([]byte, error) {
-	if raw := os.Getenv("JAYBASE_DATA_KEY"); raw != "" {
+	if raw := Getenv("STELLARJAY_DATA_KEY"); raw != "" {
 		key, err := decodeKey(raw)
 		if err != nil {
 			return nil, err
@@ -894,7 +901,7 @@ func loadOrCreateKey(dir string) ([]byte, error) {
 
 func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jaybase-write-*")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-write-*")
 	if err != nil {
 		return err
 	}
@@ -923,7 +930,7 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 
 func atomicCreateFile(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jaybase-node-*")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-node-*")
 	if err != nil {
 		return err
 	}
@@ -966,7 +973,7 @@ func decodeKey(raw string) ([]byte, error) {
 	if key, err := hex.DecodeString(raw); err == nil && len(key) == 32 {
 		return key, nil
 	}
-	return nil, appErr(ErrValidation, "JAYBASE_DATA_KEY, INFOBASE_DATA_KEY, or store key must be 32 bytes encoded as base64 or hex")
+	return nil, appErr(ErrValidation, "STELLARJAY_DATA_KEY, INFOBASE_DATA_KEY, or store key must be 32 bytes encoded as base64 or hex")
 }
 
 func encryptPayload(key []byte, plaintext []byte) (*EncryptedPayload, error) {

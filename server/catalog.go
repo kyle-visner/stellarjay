@@ -236,7 +236,7 @@ func (c *Catalog) persist(enforced bool, entries []CatalogEntry) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".jaybase-catalog-*.json")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-catalog-*.json")
 	if err != nil {
 		return err
 	}

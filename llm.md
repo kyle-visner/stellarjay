@@ -1,16 +1,16 @@
-# Jaybase agent guide
+# Stellar Jay agent guide
 
 Use this document as the operating contract for an agent that reads or writes
-Jaybase. For deployment and human administration, use `README.md` and `docs/`.
+Stellar Jay. For deployment and human administration, use `README.md` and `docs/`.
 
-## What Jaybase is
+## What Stellar Jay is
 
-Jaybase is an authenticated, append-only event store for durable business facts.
+Stellar Jay is an authenticated, append-only event store for durable business facts.
 It records who asserted something, when it was asserted, the command that caused
 the assertion, and an encrypted JSON payload. Its hash-linked history is the
 source of truth.
 
-Jaybase does not decide whether a fact is true or materialize current entity
+Stellar Jay does not decide whether a fact is true or materialize current entity
 state. It does not enforce a domain schema unless an operator has installed a
 catalog. Installed types and commands are an exact list outside the event
 history. Tokens with no `allow` block keep role-wide access, except that an
@@ -18,13 +18,16 @@ enforced catalog rejects types and commands that are not installed. The
 consuming agent must still validate evidence, apply its domain rules, and
 derive current state by replaying relevant events.
 
-Prefer the hosted HTTP API. Never read or edit Jaybase's `objects/`, `refs/`, or
-`keys/` files directly.
+Prefer the MCP server when your harness supports MCP: it applies every rule in
+this guide for you. See [docs/mcp.md](docs/mcp.md) for setup (`stellarjay-mcp`
+locally, or `https://mcp.aviansuite.com/mcp` on AvianSuite). Otherwise use the
+HTTP API as described below. Never read or edit Stellar Jay's `objects/`,
+`refs/`, or `keys/` files directly.
 
 ## Required connection inputs
 
-- `JAYBASE_URL`: HTTPS origin, without a trailing slash.
-- `JAYBASE_TOKEN`: bearer token assigned to this agent.
+- `STELLARJAY_URL`: HTTPS origin, without a trailing slash.
+- `STELLARJAY_TOKEN`: bearer token assigned to this agent.
 - Role: `reader`, `writer`, `operator`, or `admin`. `reader`, `writer`, and
   `admin` are cumulative. `operator` only manages the catalog and cannot read
   or append facts. Use `operator` for the agent that installs types, and a
@@ -82,8 +85,8 @@ Example:
 
 ```sh
 curl -fsS \
-  -H "Authorization: Bearer $JAYBASE_TOKEN" \
-  "$JAYBASE_URL/v1/events?after=$LAST_APPLIED_HASH&root=$CAPTURED_ROOT&limit=100"
+  -H "Authorization: Bearer $STELLARJAY_TOKEN" \
+  "$STELLARJAY_URL/v1/events?after=$LAST_APPLIED_HASH&root=$CAPTURED_ROOT&limit=100"
 ```
 
 On the first request, omit `root`; that response captures the stable boundary.
@@ -111,8 +114,8 @@ Every append requires both optimistic concurrency and retry identity:
 Example:
 
 ```sh
-curl -fsS -X POST "$JAYBASE_URL/v1/events" \
-  -H "Authorization: Bearer $JAYBASE_TOKEN" \
+curl -fsS -X POST "$STELLARJAY_URL/v1/events" \
+  -H "Authorization: Bearer $STELLARJAY_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: crm-sync-contact-42-v7" \
   --data '{
@@ -153,8 +156,9 @@ Interpret a successful response as follows:
 
 On a timeout, connection loss, or unknown result:
 
-1. Retry the exact same body with the exact same `Idempotency-Key`.
-2. If the first request committed, Jaybase returns the original hash with
+1. Retry the same event with the same `Idempotency-Key`. The type, entity ID,
+   command and payload must match; `expected_root` may be the newer root.
+2. If the first request committed, Stellar Jay returns the original hash with
    `replayed: true`.
 3. If it did not commit, the retry can commit normally if the expected root is
    still current.
@@ -177,7 +181,7 @@ Never blindly loop on `409`. Concurrency conflicts require domain reconciliation
 
 ## Fact modeling conventions
 
-Jaybase accepts arbitrary JSON, but agents should keep a stable contract:
+Stellar Jay accepts arbitrary JSON, but agents should keep a stable contract:
 
 - `type`: namespaced event category with stable semantics, such as
   `business.fact`, `crm.customer.updated`, or `policy.approved`.
@@ -193,14 +197,14 @@ When useful, include these payload fields:
 - `observed_at` for the source observation time;
 - `evidence` with a source kind and durable reference;
 - `confidence` only when uncertainty is meaningful and its scale is defined;
-- `supersedes` or `retracts` containing a prior Jaybase hash;
+- `supersedes` or `retracts` containing a prior Stellar Jay hash;
 - `reason` for corrections, retractions, and approvals.
 
 Never mutate an earlier event. To correct or retract a fact, append a new event
 that references the old hash and explains the change. Preserve the evidence that
 led to both states.
 
-Do not store plaintext secrets merely because Jaybase encrypts payloads. Store a
+Do not store plaintext secrets merely because Stellar Jay encrypts payloads. Store a
 secret-manager reference when possible. Event metadata—type, entity ID, actor,
 role, command, time, and graph shape—is not encrypted.
 
@@ -258,7 +262,7 @@ Ordinary fact agents should not receive `admin` credentials.
 - `POST /v1/admin/snapshots` writes a consistent encrypted archive that excludes
   the data key.
 
-A successful snapshot on the Jaybase host is not yet a backup. An operator must
+A successful snapshot on the Stellar Jay host is not yet a backup. An operator must
 copy it off-host and retain the data key in a separate failure domain.
 
 ## Non-negotiable invariants
@@ -272,6 +276,6 @@ copy it off-host and retain the data key in a separate failure domain.
 - Reuse the same idempotency key and body for an ambiguous retry.
 - Reconcile rather than overwrite when the root changes.
 - Append corrections; never rewrite history.
-- Never operate on Jaybase storage files directly.
-- Never run multiple Jaybase server replicas against the same volume.
+- Never operate on Stellar Jay storage files directly.
+- Never run multiple Stellar Jay server replicas against the same volume.
 - Never claim that tamper evidence proves a business assertion is true.

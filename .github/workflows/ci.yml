@@ -19,7 +19,7 @@ jobs:
           cache: true
       - run: go test -race ./...
       - run: go vet ./...
-      - run: go build ./cmd/jaybase-server
+      - run: go build ./cmd/...
 
   container:
     runs-on: ubuntu-latest
@@ -30,4 +30,4 @@ jobs:
         with:
           context: .
           push: false
-          tags: jaybase:test
+          tags: stellarjay:test

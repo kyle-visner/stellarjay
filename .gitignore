@@ -1,6 +1,7 @@
-.jaybase/
+.stellarjay/
 backups/
 secrets/*
 !secrets/README.md
 .env
 .firecrawl/
+.jaybase/

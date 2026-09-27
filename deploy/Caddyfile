@@ -1,4 +1,4 @@
-{$JAYBASE_DOMAIN} {
+{$STELLARJAY_DOMAIN} {
 	encode zstd gzip
 
 	header {
@@ -12,5 +12,5 @@
 		max_size 2MB
 	}
 
-	reverse_proxy jaybase:8080
+	reverse_proxy stellarjay:8080
 }

@@ -11,7 +11,7 @@ Caddy (public ports 80/443)
     |
     | private Compose network
     v
-Jaybase server (single non-root writer)
+Stellar Jay server (single non-root writer)
     |                    |
     | encrypted nodes    | consistent encrypted snapshots
     v                    v
@@ -25,13 +25,13 @@ linear Merkle chain with a mutable root ref, not a distributed consensus
 protocol. One process serializes writes with an in-process lock and holds an
 advisory volume lock at `.writer.lock`; a second process fails to open the same
 store. Refs are atomically replaced only after a content-addressed node is
-durable. Do not run multiple Jaybase replicas against one volume, including on a
+durable. Do not run multiple Stellar Jay replicas against one volume, including on a
 shared network filesystem whose locking behavior has not been proven.
 
 Unix-family builds use kernel-released `flock` or `fcntl` advisory locks, so an
 unclean process exit does not strand ownership. The portable fallback for
 non-Unix targets uses exclusive file creation; after a crash on such a target,
-an operator must confirm no Jaybase process owns the store and remove the stale
+an operator must confirm no Stellar Jay process owns the store and remove the stale
 `.writer.lock` before reopening it.
 
 ## Write contract
@@ -60,7 +60,7 @@ This ordering means a crash can leave an unreachable node, but cannot make the
 root reference a partially written node. Snapshots include all encrypted nodes
 and refs, so an unreachable node is retained for forensic recovery.
 
-At open, Jaybase verifies reachable history and builds lightweight in-memory
+At open, Stellar Jay verifies reachable history and builds lightweight in-memory
 indexes for event position and request identity. That startup work is linear in
 history size. It makes idempotent replay lookup constant-time and lets the read
 API load only the requested page instead of materializing the full history.

@@ -35,7 +35,7 @@
 
 ## Single-tenant financial deployment profile
 
-Jaybase is intentionally one organization, one process, one volume, and one
+Stellar Jay is intentionally one organization, one process, one volume, and one
 active data key. `reader`, `writer`, and `admin` are cumulative coarse roles.
 `operator` is a separate catalog role, not a second writer. This is not
 multi-tenant isolation or per-entity authorization. Use separate deployments
@@ -65,7 +65,7 @@ For financial data:
 Create a replacement token without manually handling its digest:
 
 ```sh
-go run ./cmd/jaybase-server add-token \
+go run ./cmd/stellarjay-server add-token \
   ./secrets/auth.json writer-next writer "$NOT_AFTER_RFC3339"
 ```
 
@@ -73,9 +73,9 @@ The command prints plaintext once. Store it in a password manager, recreate the
 service, move clients, then revoke the old ID and recreate again:
 
 ```sh
-docker compose up -d --force-recreate jaybase
-go run ./cmd/jaybase-server revoke-token ./secrets/auth.json writer-old
-docker compose up -d --force-recreate jaybase
+docker compose up -d --force-recreate stellarjay
+go run ./cmd/stellarjay-server revoke-token ./secrets/auth.json writer-old
+docker compose up -d --force-recreate stellarjay
 ```
 
 Set `NOT_AFTER_RFC3339` to a reviewed near-term UTC boundary. The argument is
@@ -95,27 +95,27 @@ Retain every exported snapshot's root and timestamp off-host. Check the last pin
 
 ```sh
 curl -fsS -G \
-  -H "Authorization: Bearer $JAYBASE_ADMIN_TOKEN" \
+  -H "Authorization: Bearer $STELLARJAY_ADMIN_TOKEN" \
   --data-urlencode "root=$PINNED_ROOT" \
-  "$JAYBASE_URL/v1/admin/check-root"
+  "$STELLARJAY_URL/v1/admin/check-root"
 ```
 
 The endpoint returns `200` only when the pin is the live root or an ancestor and
-`409 integrity_error` when absent. Set `JAYBASE_MINIMUM_ROOT` to the last
-independently retained pin and recreate Jaybase to make an absent pin fail
+`409 integrity_error` when absent. Set `STELLARJAY_MINIMUM_ROOT` to the last
+independently retained pin and recreate Stellar Jay to make an absent pin fail
 readiness with `503`. Event appends and named-ref updates also fail closed with
 `503` while the pin is absent, even if a client bypasses health-aware routing.
 Reads and verification remain available for investigation. Alert before allowing
-writes. Never keep the only pin on the Jaybase volume.
+writes. Never keep the only pin on the Stellar Jay volume.
 
 ## Host hardening checklist
 
 - Patch hosts and images; Dependabot tracks repository dependencies.
 - Permit public 80/443 and restricted administrative SSH only. Never publish
-  Jaybase port 8080.
+  Stellar Jay port 8080.
 - Use full-disk encryption and an edge firewall or WAF. Application throttling is
   a backstop, not volumetric denial-of-service protection.
-- Send JSON logs to a restricted destination. Jaybase never logs bodies or
+- Send JSON logs to a restricted destination. Stellar Jay never logs bodies or
   Authorization headers. Event reads record `include_payload`, the actual
   `payloads_decrypted` count, `limit`, and `after_present`. Selective payload
   reads record the principal, outcome, observed root, bounded selected count,

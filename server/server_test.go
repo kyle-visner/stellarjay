@@ -19,13 +19,13 @@ import (
 	"testing"
 	"time"
 
-	jaybase "github.com/kyle-visner/jaybase"
+	stellarjay "github.com/kyle-visner/stellarjay"
 )
 
 type testAPI struct {
 	handler http.Handler
 	api     *API
-	store   *jaybase.Store
+	store   *stellarjay.Store
 	backup  string
 	tokens  map[string]string
 	logs    *bytes.Buffer
@@ -63,7 +63,7 @@ func newTestAPIWithOptions(t *testing.T, configure func(*Options)) testAPI {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := jaybase.OpenStore(t.TempDir())
+	store, err := stellarjay.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestAdminSnapshotEndpointCreatesKeylessArchive(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("admin snapshot status=%d body=%s", response.Code, response.Body.String())
 	}
-	var result jaybase.SnapshotInfo
+	var result stellarjay.SnapshotInfo
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestBDDEventEndpointHonorsThePageLimitBeforeReadingHistory(t *testing.T) {
 	api := newTestAPI(t)
 	var roots []string
 	for i := 0; i < 3; i++ {
-		root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 			Type: "fact", Command: "remember", Payload: map[string]int{"sequence": i},
 		})
 		if err != nil {
@@ -230,7 +230,7 @@ func TestBDDIncrementalEventReplayKeepsTheFirstRootAsItsBoundary(t *testing.T) {
 	var roots []string
 	appendEvent := func(sequence int) {
 		t.Helper()
-		root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 			Type: "fact", Command: "remember", Payload: map[string]int{"sequence": sequence},
 		})
 		if err != nil {
@@ -312,12 +312,12 @@ func TestBDDIncrementalEventReplayKeepsTheFirstRootAsItsBoundary(t *testing.T) {
 		t.Fatalf("unknown checkpoint status=%d body=%s", missing.Code, missing.Body.String())
 	}
 	var failure struct {
-		Error jaybase.AppError `json:"error"`
+		Error stellarjay.AppError `json:"error"`
 	}
 	if err := json.Unmarshal(missing.Body.Bytes(), &failure); err != nil {
 		t.Fatal(err)
 	}
-	if failure.Error.Code != jaybase.ErrNotFound {
+	if failure.Error.Code != stellarjay.ErrNotFound {
 		t.Fatalf("unknown checkpoint error=%#v", failure.Error)
 	}
 }
@@ -326,7 +326,7 @@ func TestMetadataReplayBindsPaginationToObservedRootAcrossConcurrentAppends(t *t
 	api := newTestAPI(t)
 	var roots []string
 	for i := 0; i < 4; i++ {
-		root, err := api.store.Append(jaybase.Context{Actor: "fixture", Role: "writer"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "fixture", Role: "writer"}, stellarjay.AppendOptions{
 			Type: fmt.Sprintf("app.%d.fact", i%2), Command: "remember", Payload: map[string]int{"sequence": i},
 		})
 		if err != nil {
@@ -350,7 +350,7 @@ func TestMetadataReplayBindsPaginationToObservedRootAcrossConcurrentAppends(t *t
 		t.Fatalf("unexpected first page: %#v", firstPage)
 	}
 	for i := 4; i < 6; i++ {
-		root, err := api.store.Append(jaybase.Context{Actor: "concurrent", Role: "writer"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "concurrent", Role: "writer"}, stellarjay.AppendOptions{
 			Type: "other.fact", Command: "remember", Payload: map[string]int{"sequence": i},
 		})
 		if err != nil {
@@ -403,7 +403,7 @@ func TestSelectivePayloadRetrievalSkipsCorruptForeignPayloadAndAuditsIdentities(
 	secrets := []string{"magpie-secret", "foreign-secret", "martin-secret"}
 	var roots []string
 	for i := range types {
-		root, err := api.store.Append(jaybase.Context{Actor: "fixture", Role: "writer"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "fixture", Role: "writer"}, stellarjay.AppendOptions{
 			Type: types[i], Command: "assert", Payload: map[string]string{"value": secrets[i]},
 		})
 		if err != nil {
@@ -452,7 +452,7 @@ func TestSelectivePayloadRetrievalSkipsCorruptForeignPayloadAndAuditsIdentities(
 
 func TestSelectivePayloadRetrievalEnforcesBatchAndResponseBounds(t *testing.T) {
 	api := newTestAPIWithOptions(t, func(options *Options) { options.MaxBodyBytes = 512 })
-	root, err := api.store.Append(jaybase.Context{Actor: "fixture", Role: "writer"}, jaybase.AppendOptions{
+	root, err := api.store.Append(stellarjay.Context{Actor: "fixture", Role: "writer"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]string{"value": strings.Repeat("x", 400)},
 	})
 	if err != nil {
@@ -490,7 +490,7 @@ func TestPayloadInclusiveCompatibilityReadCapsBatchAndAuditsIdentities(t *testin
 	api := newTestAPI(t)
 	var roots []string
 	for i := 0; i < maxPayloadBatchEvents+1; i++ {
-		root, err := api.store.Append(jaybase.Context{Actor: "fixture", Role: "writer"}, jaybase.AppendOptions{
+		root, err := api.store.Append(stellarjay.Context{Actor: "fixture", Role: "writer"}, stellarjay.AppendOptions{
 			Type: "fact", Command: "remember", Payload: map[string]int{"sequence": i},
 		})
 		if err != nil {
@@ -537,9 +537,31 @@ func TestBDDOversizedJSONReturnsOneStructured413(t *testing.T) {
 	}
 }
 
+func TestPublicSiteAndLLMTxt(t *testing.T) {
+	api := newTestAPI(t)
+	home := api.request(t, http.MethodGet, "/", "", "", "")
+	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), "/llm.txt") {
+		t.Fatalf("home status=%d body=%s", home.Code, home.Body.String())
+	}
+	if got := home.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("home content-type %q", got)
+	}
+	doc := api.request(t, http.MethodGet, "/llm.txt", "", "", "")
+	if doc.Code != http.StatusOK || !strings.Contains(doc.Body.String(), "STELLARJAY_URL") || !strings.Contains(doc.Body.String(), "STELLARJAY_TOKEN") {
+		t.Fatalf("llm.txt status=%d body=%s", doc.Code, doc.Body.String())
+	}
+	if got := doc.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("llm.txt content-type %q", got)
+	}
+	alias := api.request(t, http.MethodGet, "/llms.txt", "", "", "")
+	if alias.Code != http.StatusOK || alias.Body.String() != doc.Body.String() {
+		t.Fatalf("llms.txt should match llm.txt: %d %s", alias.Code, alias.Body.String())
+	}
+}
+
 func TestBDDIntegrityFailureUsesServerErrorAndNotReadyStatus(t *testing.T) {
 	api := newTestAPI(t)
-	root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	root, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]bool{"valid": true},
 	})
 	if err != nil {
@@ -566,7 +588,7 @@ func TestBDDIntegrityFailureUsesServerErrorAndNotReadyStatus(t *testing.T) {
 
 func TestBDDAccessLogsAttributeAuthenticatedAndRejectedRequests(t *testing.T) {
 	api := newTestAPI(t)
-	if _, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	if _, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]bool{"sensitive": true},
 	}); err != nil {
 		t.Fatal(err)
@@ -603,7 +625,7 @@ func TestBDDAccessLogsAttributeAuthenticatedAndRejectedRequests(t *testing.T) {
 
 func TestMinimumRootReadinessAndAdminCheckDetectRollback(t *testing.T) {
 	api := newTestAPI(t)
-	root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	root, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: true,
 	})
 	if err != nil {
@@ -674,13 +696,13 @@ func TestDecodeErrorsDoNotExposeParserDetails(t *testing.T) {
 
 func TestBDDNamedRefUpdatesUseCompareAndSwap(t *testing.T) {
 	api := newTestAPI(t)
-	first, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	first, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]int{"sequence": 1},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	second, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]int{"sequence": 2},
 	})
 	if err != nil {
@@ -708,7 +730,7 @@ func TestBDDSnapshotRetentionCapacityAndClockAreEnforced(t *testing.T) {
 		options.SnapshotRetention = 2
 		options.SnapshotMinFreeBytes = 1
 	})
-	root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	root, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]bool{"valid": true},
 	})
 	if err != nil || root == "" {
@@ -726,11 +748,11 @@ func TestBDDSnapshotRetentionCapacityAndClockAreEnforced(t *testing.T) {
 		if response.Code != http.StatusCreated {
 			t.Fatalf("snapshot %d status=%d body=%s", i, response.Code, response.Body.String())
 		}
-		if i == 0 && !strings.Contains(response.Body.String(), "jaybase-20300102T030405.000000000Z.tar.gz") {
+		if i == 0 && !strings.Contains(response.Body.String(), "stellarjay-20300102T030405.000000000Z.tar.gz") {
 			t.Fatalf("snapshot filename did not use store clock: %s", response.Body.String())
 		}
 	}
-	archives, err := filepath.Glob(filepath.Join(api.backup, "jaybase-*.tar.gz"))
+	archives, err := filepath.Glob(filepath.Join(api.backup, "stellarjay-*.tar.gz"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +771,7 @@ func TestBDDExplicitZeroSnapshotReserveIsHonored(t *testing.T) {
 	api := newTestAPIWithOptions(t, func(options *Options) {
 		options.SnapshotMinFreeBytes = 0
 	})
-	if _, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	if _, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]bool{"valid": true},
 	}); err != nil {
 		t.Fatal(err)
@@ -766,7 +788,7 @@ func TestBDDPruneFailureDoesNotHideDurableSnapshot(t *testing.T) {
 	api := newTestAPIWithOptions(t, func(options *Options) {
 		options.SnapshotMinFreeBytes = 0
 	})
-	if _, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{
+	if _, err := api.store.Append(stellarjay.Context{Actor: "fixture"}, stellarjay.AppendOptions{
 		Type: "fact", Command: "remember", Payload: map[string]bool{"valid": true},
 	}); err != nil {
 		t.Fatal(err)
@@ -777,7 +799,7 @@ func TestBDDPruneFailureDoesNotHideDurableSnapshot(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("durable snapshot hidden by prune failure: status=%d body=%s", response.Code, response.Body.String())
 	}
-	var info jaybase.SnapshotInfo
+	var info stellarjay.SnapshotInfo
 	if err := json.Unmarshal(response.Body.Bytes(), &info); err != nil {
 		t.Fatal(err)
 	}
@@ -787,5 +809,31 @@ func TestBDDPruneFailureDoesNotHideDurableSnapshot(t *testing.T) {
 	if !strings.Contains(api.logs.String(), "snapshot retention cleanup failed") ||
 		!strings.Contains(api.logs.String(), "retention storage unavailable") {
 		t.Fatalf("prune failure was not logged: %s", api.logs.String())
+	}
+}
+
+func TestAppendRetryReplaysAfterRootMoved(t *testing.T) {
+	api := newTestAPI(t)
+	writer := api.tokens["writer-agent"]
+	first := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":1},"expected_root":""}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first append = %d %s", first.Code, first.Body)
+	}
+	var committed struct{ Hash, Root string }
+	_ = json.Unmarshal(first.Body.Bytes(), &committed)
+	other := api.request(t, http.MethodPost, "/v1/events", writer, "another-write", `{"type":"business.fact","entity_id":"e:2","command":"fact assert","payload":{"predicate":"p","value":2},"expected_root":"`+committed.Root+`"}`)
+	if other.Code != http.StatusCreated {
+		t.Fatalf("second append = %d %s", other.Code, other.Body)
+	}
+	var moved struct{ Root string }
+	_ = json.Unmarshal(other.Body.Bytes(), &moved)
+
+	retry := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":1},"expected_root":"`+moved.Root+`"}`)
+	if retry.Code != http.StatusOK || !strings.Contains(retry.Body.String(), `"replayed":true`) || !strings.Contains(retry.Body.String(), committed.Hash) {
+		t.Fatalf("retry against a newer root should replay the original: %d %s", retry.Code, retry.Body)
+	}
+	changed := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":9},"expected_root":"`+moved.Root+`"}`)
+	if changed.Code != http.StatusConflict || !strings.Contains(changed.Body.String(), "different content") {
+		t.Fatalf("same key with a different payload must conflict: %d %s", changed.Code, changed.Body)
 	}
 }
