@@ -229,6 +229,9 @@ type HTTPOptions struct {
 	// WWWAuthenticate is sent with 401 responses, for example
 	// `Bearer resource_metadata="https://.../.well-known/oauth-protected-resource"`.
 	WWWAuthenticate string
+	// WWWAuthenticateFor, when set, builds the 401 challenge per request, for
+	// servers reachable under more than one host name.
+	WWWAuthenticateFor func(*http.Request) string
 }
 
 // HTTPHandler serves the MCP Streamable HTTP transport with JSON responses.
@@ -248,8 +251,12 @@ func (s *Server) HTTPHandler(opts HTTPOptions) http.Handler {
 		c, err := opts.ClientFor(r)
 		if err != nil {
 			if errors.Is(err, ErrUnauthorized) {
-				if opts.WWWAuthenticate != "" {
-					w.Header().Set("WWW-Authenticate", opts.WWWAuthenticate)
+				challenge := opts.WWWAuthenticate
+				if opts.WWWAuthenticateFor != nil {
+					challenge = opts.WWWAuthenticateFor(r)
+				}
+				if challenge != "" {
+					w.Header().Set("WWW-Authenticate", challenge)
 				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
