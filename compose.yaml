@@ -1,34 +1,34 @@
-name: jaybase
+name: stellarjay
 
 services:
-  jaybase:
+  stellarjay:
     build:
       context: .
     restart: unless-stopped
     environment:
-      JAYBASE_LISTEN_ADDR: :8080
-      JAYBASE_DATA_DIR: /var/lib/jaybase
-      JAYBASE_BACKUP_DIR: /var/backups/jaybase
-      JAYBASE_DATA_KEY_FILE: /run/secrets/jaybase_data_key
-      JAYBASE_AUTH_FILE: /run/secrets/jaybase_auth
+      STELLARJAY_LISTEN_ADDR: :8080
+      STELLARJAY_DATA_DIR: /var/lib/stellarjay
+      STELLARJAY_BACKUP_DIR: /var/backups/stellarjay
+      STELLARJAY_DATA_KEY_FILE: /run/secrets/stellarjay_data_key
+      STELLARJAY_AUTH_FILE: /run/secrets/stellarjay_auth
       # Optional. Empty keeps open writes. Set a writable data-volume path to
-      # enable the operator catalog, for example /var/lib/jaybase/catalog.json.
-      JAYBASE_CATALOG_FILE: ${JAYBASE_CATALOG_FILE:-}
-      JAYBASE_SNAPSHOT_RETENTION: ${JAYBASE_SNAPSHOT_RETENTION:-24}
-      JAYBASE_SNAPSHOT_MIN_FREE_BYTES: ${JAYBASE_SNAPSHOT_MIN_FREE_BYTES:-536870912}
-      JAYBASE_MINIMUM_ROOT: ${JAYBASE_MINIMUM_ROOT:-}
-      JAYBASE_RATE_LIMIT_PER_MINUTE: ${JAYBASE_RATE_LIMIT_PER_MINUTE:-600}
-      JAYBASE_FAILED_AUTH_LIMIT_PER_MINUTE: ${JAYBASE_FAILED_AUTH_LIMIT_PER_MINUTE:-30}
+      # enable the operator catalog, for example /var/lib/stellarjay/catalog.json.
+      STELLARJAY_CATALOG_FILE: ${STELLARJAY_CATALOG_FILE:-${JAYBASE_CATALOG_FILE:-}}
+      STELLARJAY_SNAPSHOT_RETENTION: ${STELLARJAY_SNAPSHOT_RETENTION:-${JAYBASE_SNAPSHOT_RETENTION:-24}}
+      STELLARJAY_SNAPSHOT_MIN_FREE_BYTES: ${STELLARJAY_SNAPSHOT_MIN_FREE_BYTES:-${JAYBASE_SNAPSHOT_MIN_FREE_BYTES:-536870912}}
+      STELLARJAY_MINIMUM_ROOT: ${STELLARJAY_MINIMUM_ROOT:-${JAYBASE_MINIMUM_ROOT:-}}
+      STELLARJAY_RATE_LIMIT_PER_MINUTE: ${STELLARJAY_RATE_LIMIT_PER_MINUTE:-${JAYBASE_RATE_LIMIT_PER_MINUTE:-600}}
+      STELLARJAY_FAILED_AUTH_LIMIT_PER_MINUTE: ${STELLARJAY_FAILED_AUTH_LIMIT_PER_MINUTE:-${JAYBASE_FAILED_AUTH_LIMIT_PER_MINUTE:-30}}
     secrets:
-      - jaybase_data_key
-      - jaybase_auth
+      - stellarjay_data_key
+      - stellarjay_auth
     volumes:
-      - jaybase_data:/var/lib/jaybase
-      - jaybase_backups:/var/backups/jaybase
+      - stellarjay_data:/var/lib/stellarjay
+      - stellarjay_backups:/var/backups/stellarjay
     expose:
       - "8080"
-    cpus: ${JAYBASE_CPUS:-1.0}
-    mem_limit: ${JAYBASE_MEMORY_LIMIT:-512m}
+    cpus: ${STELLARJAY_CPUS:-${JAYBASE_CPUS:-1.0}}
+    mem_limit: ${STELLARJAY_MEMORY_LIMIT:-${JAYBASE_MEMORY_LIMIT:-512m}}
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1700,uid=65532,gid=65532
@@ -37,7 +37,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "/jaybase-server", "healthcheck", "http://127.0.0.1:8080/health/ready"]
+      test: ["CMD", "/stellarjay-server", "healthcheck", "http://127.0.0.1:8080/health/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -47,10 +47,10 @@ services:
     image: caddy:2.11.4-alpine
     restart: unless-stopped
     depends_on:
-      jaybase:
+      stellarjay:
         condition: service_healthy
     environment:
-      JAYBASE_DOMAIN: ${JAYBASE_DOMAIN:?set JAYBASE_DOMAIN in .env}
+      STELLARJAY_DOMAIN: ${STELLARJAY_DOMAIN:-${JAYBASE_DOMAIN:?set STELLARJAY_DOMAIN in .env}}
     ports:
       - "80:80"
       - "443:443"
@@ -72,13 +72,19 @@ services:
       - no-new-privileges:true
 
 secrets:
-  jaybase_data_key:
+  stellarjay_data_key:
     file: ./secrets/data_key
-  jaybase_auth:
+  stellarjay_auth:
     file: ./secrets/auth.json
 
+# Volume names are pinned to the names Compose gave them before the Stellar Jay
+# rename (project "jaybase"), so upgrading keeps the existing store and certs.
 volumes:
-  jaybase_data:
-  jaybase_backups:
+  stellarjay_data:
+    name: jaybase_jaybase_data
+  stellarjay_backups:
+    name: jaybase_jaybase_backups
   caddy_data:
+    name: jaybase_caddy_data
   caddy_config:
+    name: jaybase_caddy_config

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	jaybase "github.com/kyle-visner/jaybase"
+	stellarjay "github.com/kyle-visner/stellarjay"
 )
 
 type rateWindow struct {
@@ -53,5 +53,5 @@ func (l *fixedWindowLimiter) Allow(key string) bool {
 
 func writeRateLimit(w http.ResponseWriter) {
 	w.Header().Set("Retry-After", "60")
-	writeError(w, http.StatusTooManyRequests, jaybase.ErrRateLimit, "request rate limit exceeded")
+	writeError(w, http.StatusTooManyRequests, stellarjay.ErrRateLimit, "request rate limit exceeded")
 }

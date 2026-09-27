@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"crypto/aes"
@@ -152,7 +152,7 @@ func OpenStoreWithDataKey(dir, encodedKey string) (*Store, error) {
 
 func openStore(dir, encodedKey string, requireExplicitKey bool) (*Store, error) {
 	if dir == "" {
-		dir = ".jaybase"
+		dir = DefaultDir()
 	}
 	s := &Store{
 		dir: dir, now: func() time.Time { return time.Now().UTC() },
@@ -856,7 +856,7 @@ func validateHash(hash string) error {
 }
 
 func loadOrCreateKey(dir string) ([]byte, error) {
-	if raw := os.Getenv("JAYBASE_DATA_KEY"); raw != "" {
+	if raw := Getenv("STELLARJAY_DATA_KEY"); raw != "" {
 		key, err := decodeKey(raw)
 		if err != nil {
 			return nil, err
@@ -894,7 +894,7 @@ func loadOrCreateKey(dir string) ([]byte, error) {
 
 func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jaybase-write-*")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-write-*")
 	if err != nil {
 		return err
 	}
@@ -923,7 +923,7 @@ func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
 
 func atomicCreateFile(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jaybase-node-*")
+	tmp, err := os.CreateTemp(dir, ".stellarjay-node-*")
 	if err != nil {
 		return err
 	}
@@ -966,7 +966,7 @@ func decodeKey(raw string) ([]byte, error) {
 	if key, err := hex.DecodeString(raw); err == nil && len(key) == 32 {
 		return key, nil
 	}
-	return nil, appErr(ErrValidation, "JAYBASE_DATA_KEY, INFOBASE_DATA_KEY, or store key must be 32 bytes encoded as base64 or hex")
+	return nil, appErr(ErrValidation, "STELLARJAY_DATA_KEY, INFOBASE_DATA_KEY, or store key must be 32 bytes encoded as base64 or hex")
 }
 
 func encryptPayload(key []byte, plaintext []byte) (*EncryptedPayload, error) {

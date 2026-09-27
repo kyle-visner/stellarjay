@@ -21,8 +21,8 @@ import (
 	"syscall"
 	"time"
 
-	jaybase "github.com/kyle-visner/jaybase"
-	"github.com/kyle-visner/jaybase/server"
+	stellarjay "github.com/kyle-visner/stellarjay"
+	"github.com/kyle-visner/stellarjay/server"
 )
 
 func main() {
@@ -52,27 +52,27 @@ func main() {
 		err = fmt.Errorf("unknown command %q (expected serve, healthcheck, hash-token, add-token, revoke-token, catalog, migrate-key, or init)", command)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "jaybase-server:", err)
+		fmt.Fprintln(os.Stderr, "stellarjay-server:", err)
 		os.Exit(1)
 	}
 }
 
 func serve() error {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	dataDir := envOr("JAYBASE_DATA_DIR", ".jaybase")
-	authFile := strings.TrimSpace(os.Getenv("JAYBASE_AUTH_FILE"))
-	keyFile := strings.TrimSpace(os.Getenv("JAYBASE_DATA_KEY_FILE"))
+	dataDir := envOr("STELLARJAY_DATA_DIR", stellarjay.DefaultDir())
+	authFile := stellarjay.Getenv("STELLARJAY_AUTH_FILE")
+	keyFile := stellarjay.Getenv("STELLARJAY_DATA_KEY_FILE")
 	if authFile == "" {
-		return fmt.Errorf("JAYBASE_AUTH_FILE is required")
+		return fmt.Errorf("STELLARJAY_AUTH_FILE is required")
 	}
 	if keyFile == "" {
-		return fmt.Errorf("JAYBASE_DATA_KEY_FILE is required; hosted mode never stores its key with the data")
+		return fmt.Errorf("STELLARJAY_DATA_KEY_FILE is required; hosted mode never stores its key with the data")
 	}
 	encodedKey, err := os.ReadFile(keyFile)
 	if err != nil {
-		return fmt.Errorf("read JAYBASE_DATA_KEY_FILE: %w", err)
+		return fmt.Errorf("read STELLARJAY_DATA_KEY_FILE: %w", err)
 	}
-	store, err := jaybase.OpenStoreWithDataKey(dataDir, strings.TrimSpace(string(encodedKey)))
+	store, err := stellarjay.OpenStoreWithDataKey(dataDir, strings.TrimSpace(string(encodedKey)))
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -82,39 +82,39 @@ func serve() error {
 		return err
 	}
 	var catalog *server.Catalog
-	if catalogFile := strings.TrimSpace(os.Getenv("JAYBASE_CATALOG_FILE")); catalogFile != "" {
+	if catalogFile := stellarjay.Getenv("STELLARJAY_CATALOG_FILE"); catalogFile != "" {
 		catalog, err = server.LoadCatalog(catalogFile)
 		if err != nil {
 			return err
 		}
 	}
-	snapshotRetention, err := envInt("JAYBASE_SNAPSHOT_RETENTION", 24)
+	snapshotRetention, err := envInt("STELLARJAY_SNAPSHOT_RETENTION", 24)
 	if err != nil {
 		return err
 	}
-	snapshotMinFreeBytes, err := envUint64("JAYBASE_SNAPSHOT_MIN_FREE_BYTES", 512<<20)
+	snapshotMinFreeBytes, err := envUint64("STELLARJAY_SNAPSHOT_MIN_FREE_BYTES", 512<<20)
 	if err != nil {
 		return err
 	}
-	rateLimit, err := envInt("JAYBASE_RATE_LIMIT_PER_MINUTE", 600)
+	rateLimit, err := envInt("STELLARJAY_RATE_LIMIT_PER_MINUTE", 600)
 	if err != nil {
 		return err
 	}
-	failedAuthLimit, err := envInt("JAYBASE_FAILED_AUTH_LIMIT_PER_MINUTE", 30)
+	failedAuthLimit, err := envInt("STELLARJAY_FAILED_AUTH_LIMIT_PER_MINUTE", 30)
 	if err != nil {
 		return err
 	}
 	api, err := server.New(server.Options{
-		Store: store, Auth: auth, BackupDir: strings.TrimSpace(os.Getenv("JAYBASE_BACKUP_DIR")), Logger: logger,
+		Store: store, Auth: auth, BackupDir: stellarjay.Getenv("STELLARJAY_BACKUP_DIR"), Logger: logger,
 		SnapshotRetention: snapshotRetention, SnapshotMinFreeBytes: snapshotMinFreeBytes,
-		MinimumRoot:        strings.TrimSpace(os.Getenv("JAYBASE_MINIMUM_ROOT")),
+		MinimumRoot:        stellarjay.Getenv("STELLARJAY_MINIMUM_ROOT"),
 		RateLimitPerMinute: rateLimit, FailedAuthLimitPerMinute: failedAuthLimit,
 		Catalog: catalog,
 	})
 	if err != nil {
 		return err
 	}
-	address := envOr("JAYBASE_LISTEN_ADDR", "127.0.0.1:8080")
+	address := envOr("STELLARJAY_LISTEN_ADDR", "127.0.0.1:8080")
 	httpServer := &http.Server{
 		Addr: address, Handler: api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -135,8 +135,8 @@ func serve() error {
 		}
 	}()
 
-	logger.Info("jaybase ready", "address", address, "data_dir", dataDir,
-		"backups_enabled", strings.TrimSpace(os.Getenv("JAYBASE_BACKUP_DIR")) != "")
+	logger.Info("stellarjay ready", "address", address, "data_dir", dataDir,
+		"backups_enabled", stellarjay.Getenv("STELLARJAY_BACKUP_DIR") != "")
 	err = httpServer.ListenAndServe()
 	if err != nil && err != http.ErrServerClosed {
 		return err
@@ -145,7 +145,7 @@ func serve() error {
 }
 
 func envInt(name string, fallback int) (int, error) {
-	raw := strings.TrimSpace(os.Getenv(name))
+	raw := stellarjay.Getenv(name)
 	if raw == "" {
 		return fallback, nil
 	}
@@ -157,7 +157,7 @@ func envInt(name string, fallback int) (int, error) {
 }
 
 func envUint64(name string, fallback uint64) (uint64, error) {
-	raw := strings.TrimSpace(os.Getenv(name))
+	raw := stellarjay.Getenv(name)
 	if raw == "" {
 		return fallback, nil
 	}
@@ -210,7 +210,7 @@ func hashToken() error {
 func addToken() error {
 	args := os.Args[2:]
 	if len(args) < 3 {
-		return fmt.Errorf("usage: jaybase-server add-token AUTH_FILE ID ROLE [NOT_AFTER_RFC3339] [--allow-type PATTERN]... [--allow-command COMMAND]... [--allow-ref PATTERN]...")
+		return fmt.Errorf("usage: stellarjay-server add-token AUTH_FILE ID ROLE [NOT_AFTER_RFC3339] [--allow-type PATTERN]... [--allow-command COMMAND]... [--allow-ref PATTERN]...")
 	}
 	var notAfter *time.Time
 	rest := args[3:]
@@ -268,7 +268,7 @@ func parseAllowFlags(args []string) (*server.Allow, error) {
 
 func catalogCommand() error {
 	if len(os.Args) < 4 {
-		return fmt.Errorf("usage: jaybase-server catalog show|install|remove|enforce CATALOG_FILE ...")
+		return fmt.Errorf("usage: stellarjay-server catalog show|install|remove|enforce CATALOG_FILE ...")
 	}
 	catalog, err := server.LoadCatalog(os.Args[3])
 	if err != nil {
@@ -277,36 +277,36 @@ func catalogCommand() error {
 	switch os.Args[2] {
 	case "show":
 		if len(os.Args) != 4 {
-			return fmt.Errorf("usage: jaybase-server catalog show CATALOG_FILE")
+			return fmt.Errorf("usage: stellarjay-server catalog show CATALOG_FILE")
 		}
 		return json.NewEncoder(os.Stdout).Encode(catalog.View())
 	case "install":
 		if len(os.Args) < 6 {
-			return fmt.Errorf("usage: jaybase-server catalog install CATALOG_FILE TYPE COMMAND...")
+			return fmt.Errorf("usage: stellarjay-server catalog install CATALOG_FILE TYPE COMMAND...")
 		}
 		entry, _, err := catalog.Install(os.Args[4], os.Args[5:])
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(os.Stderr, "Catalog updated and enforcement is on. Recreate Jaybase if it was already running; the HTTP catalog API applies without a recreate.")
+		fmt.Fprintln(os.Stderr, "Catalog updated and enforcement is on. Recreate Stellar Jay if it was already running; the HTTP catalog API applies without a recreate.")
 		return json.NewEncoder(os.Stdout).Encode(entry)
 	case "remove":
 		if len(os.Args) != 5 {
-			return fmt.Errorf("usage: jaybase-server catalog remove CATALOG_FILE TYPE")
+			return fmt.Errorf("usage: stellarjay-server catalog remove CATALOG_FILE TYPE")
 		}
 		if err := catalog.Remove(os.Args[4]); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "Removed %s. Enforcement is unchanged. Recreate Jaybase if it was already running.\n", os.Args[4])
+		fmt.Fprintf(os.Stderr, "Removed %s. Enforcement is unchanged. Recreate Stellar Jay if it was already running.\n", os.Args[4])
 		return nil
 	case "enforce":
 		if len(os.Args) != 5 || (os.Args[4] != "true" && os.Args[4] != "false") {
-			return fmt.Errorf("usage: jaybase-server catalog enforce CATALOG_FILE true|false")
+			return fmt.Errorf("usage: stellarjay-server catalog enforce CATALOG_FILE true|false")
 		}
 		if err := catalog.SetEnforced(os.Args[4] == "true"); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "Catalog enforced=%s. Recreate Jaybase if it was already running.\n", os.Args[4])
+		fmt.Fprintf(os.Stderr, "Catalog enforced=%s. Recreate Stellar Jay if it was already running.\n", os.Args[4])
 		return nil
 	default:
 		return fmt.Errorf("unknown catalog command %q", os.Args[2])
@@ -315,7 +315,7 @@ func catalogCommand() error {
 
 func revokeToken() error {
 	if len(os.Args) != 4 {
-		return fmt.Errorf("usage: jaybase-server revoke-token AUTH_FILE ID")
+		return fmt.Errorf("usage: stellarjay-server revoke-token AUTH_FILE ID")
 	}
 	if err := server.RevokeToken(os.Args[2], os.Args[3]); err != nil {
 		return err
@@ -326,7 +326,7 @@ func revokeToken() error {
 
 func migrateKey() error {
 	if len(os.Args) != 6 {
-		return fmt.Errorf("usage: jaybase-server migrate-key SOURCE_DIR DESTINATION_DIR OLD_KEY_FILE NEW_KEY_FILE")
+		return fmt.Errorf("usage: stellarjay-server migrate-key SOURCE_DIR DESTINATION_DIR OLD_KEY_FILE NEW_KEY_FILE")
 	}
 	oldKey, err := os.ReadFile(os.Args[4])
 	if err != nil {
@@ -336,7 +336,7 @@ func migrateKey() error {
 	if err != nil {
 		return fmt.Errorf("read new key file: %w", err)
 	}
-	store, err := jaybase.OpenStoreWithDataKey(os.Args[2], strings.TrimSpace(string(oldKey)))
+	store, err := stellarjay.OpenStoreWithDataKey(os.Args[2], strings.TrimSpace(string(oldKey)))
 	if err != nil {
 		return fmt.Errorf("open source store: %w", err)
 	}
@@ -444,7 +444,7 @@ func createSecretFile(path string, contents []byte) error {
 }
 
 func envOr(name, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+	if value := stellarjay.Getenv(name); value != "" {
 		return value
 	}
 	return fallback

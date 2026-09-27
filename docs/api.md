@@ -26,7 +26,7 @@ verifies that the current root addresses a valid, complete head node in constant
 time. Neither route exposes data or requires authentication; the admin verify
 route performs the full history and decryption check. A failed readiness check
 returns `503` with `status: "not_ready"` and an `integrity_error`.
-When `JAYBASE_MINIMUM_ROOT` is set, readiness also requires that independently
+When `STELLARJAY_MINIMUM_ROOT` is set, readiness also requires that independently
 pinned root to remain in live history. Event appends and named-ref updates enforce
 the same pin inside the authenticated handler and return `503 integrity_error`
 when it is absent; protection does not depend only on external health routing.
@@ -73,7 +73,7 @@ Stop; do not retry the same operation under a different type.
 ## Catalog
 
 Catalog routes require `operator` (or `admin`) and a configured
-`JAYBASE_CATALOG_FILE`. Without that file they return `503`. They edit the
+`STELLARJAY_CATALOG_FILE`. Without that file they return `503`. They edit the
 catalog file only. They do not append events.
 
 - `GET /v1/admin/catalog` returns `{"enforced":false,"entries":[]}`.
@@ -89,7 +89,7 @@ including an unscoped writer or `admin`, when the type or command is not
 installed. `operator` cannot append, so the credential that edits the schema
 cannot also write facts.
 
-`jaybase-server catalog enforce CATALOG_FILE false` is the host escape hatch
+`stellarjay-server catalog enforce CATALOG_FILE false` is the host escape hatch
 back to open writes. The HTTP API does not expose it.
 
 ## Replay events
@@ -105,7 +105,7 @@ Query parameters:
 - `include_payload=true`: decrypt and include payloads. Payloads are omitted by
   default. Payload-inclusive compatibility pages are limited to 100 events even
   when `limit` is larger. If the encoded response exceeds the configured
-  application response limit, Jaybase rejects it with `507 capacity_exceeded`.
+  application response limit, Stellar Jay rejects it with `507 capacity_exceeded`.
 
 Each event includes `event_id` and `hash` (the same opaque content identity in
 this version), type, entity ID, parent hashes, actor/role, command, timestamp,
@@ -134,7 +134,7 @@ For a concurrency-safe incremental replay:
    in chain order, and persist the target after all selected facts through it
    have been applied.
 
-Jaybase's history is a linear append-only chain, so a captured target remains
+Stellar Jay's history is a linear append-only chain, so a captured target remains
 reachable when a concurrent writer advances the live root. A cached `after`
 hash that is not in the current history returns structured `404 not_found`; the
 client must invalidate that checkpoint and perform a cold replay. This can
@@ -200,8 +200,8 @@ valid node. If the current ref differs from `expected_root`, the update returns
   `409 integrity_error` when it is absent.
 
 Authenticated calls are limited per principal; failed authentication is limited
-globally. Configure `JAYBASE_RATE_LIMIT_PER_MINUTE` and
-`JAYBASE_FAILED_AUTH_LIMIT_PER_MINUTE`. A limited call returns `429`, error code
+globally. Configure `STELLARJAY_RATE_LIMIT_PER_MINUTE` and
+`STELLARJAY_FAILED_AUTH_LIMIT_PER_MINUTE`. A limited call returns `429`, error code
 `rate_limited`, and `Retry-After: 60`.
 
 Request bodies are limited to 1 MiB at the application and 2 MiB at the proxy;

@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"archive/tar"

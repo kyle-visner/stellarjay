@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"encoding/json"
@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-func TestBDDJaybaseReplaysEncryptedAppendOnlyHistory(t *testing.T) {
+func TestBDDStellarJayReplaysEncryptedAppendOnlyHistory(t *testing.T) {
 	var store *Store
 	var firstRoot string
 	var secondRoot string
 	secret := "agent-visible fact that must stay encrypted on disk"
 
-	bddStep(t, "Given a clean Jaybase store with a deterministic clock", func() {
+	bddStep(t, "Given a clean Stellar Jay store with a deterministic clock", func() {
 		var err error
 		store, err = OpenStore(t.TempDir())
 		if err != nil {
@@ -100,7 +100,7 @@ func TestBDDJaybaseReplaysEncryptedAppendOnlyHistory(t *testing.T) {
 	})
 }
 
-func TestBDDJaybaseNamedRefsRemainTamperEvident(t *testing.T) {
+func TestBDDStellarJayNamedRefsRemainTamperEvident(t *testing.T) {
 	var store *Store
 	var checkpointRoot string
 
@@ -134,7 +134,7 @@ func TestBDDJaybaseNamedRefsRemainTamperEvident(t *testing.T) {
 		}
 	})
 
-	bddStep(t, "When a node file is modified outside Jaybase", func() {
+	bddStep(t, "When a node file is modified outside Stellar Jay", func() {
 		path := store.NodePath(checkpointRoot)
 		raw, err := os.ReadFile(path)
 		if err != nil {

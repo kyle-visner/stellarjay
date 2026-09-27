@@ -1,6 +1,6 @@
 .git
 .github
-.jaybase
+.stellarjay
 backups
 secrets
 *.tar.gz

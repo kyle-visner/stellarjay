@@ -1,4 +1,4 @@
-package jaybase
+package stellarjay
 
 import (
 	"archive/tar"
@@ -42,7 +42,7 @@ func (s *Store) CreateSnapshot(dir string) (SnapshotInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	created := s.now().UTC()
-	name := fmt.Sprintf("jaybase-%s.tar.gz", created.Format("20060102T150405.000000000Z"))
+	name := fmt.Sprintf("stellarjay-%s.tar.gz", created.Format("20060102T150405.000000000Z"))
 	info, err := s.snapshot(filepath.Join(dir, name), created)
 	if err != nil {
 		return SnapshotInfo{}, err
@@ -93,13 +93,13 @@ func (s *Store) snapshot(dest string, created time.Time) (SnapshotInfo, error) {
 	info := SnapshotInfo{Path: dest, Root: root, CreatedAt: created, Nodes: len(nodes)}
 	manifest := snapshotManifest{
 		Format: 1, Root: root, CreatedAt: created, Nodes: len(nodes),
-		Key: "not included; restore with the original JAYBASE_DATA_KEY",
+		Key: "not included; restore with the original STELLARJAY_DATA_KEY",
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return SnapshotInfo{}, err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".jaybase-snapshot-*.tar.gz")
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".stellarjay-snapshot-*.tar.gz")
 	if err != nil {
 		return SnapshotInfo{}, err
 	}
