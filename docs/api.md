@@ -57,8 +57,11 @@ The root is an empty string for a new database.
 ```
 
 `expected_root` is required. Use `""` only for the first event. A successful new
-append returns `201`; an identical retry returns `200` with `replayed: true`.
-A stale root or reused idempotency key with different content returns `409`.
+append returns `201`. A retry with the same `Idempotency-Key` and the same type,
+entity ID, command and payload returns `200` with `replayed: true` and the
+original hash, even when its `expected_root` is newer. A stale root, or a reused
+idempotency key with a different type, entity ID, command or payload, returns
+`409`.
 The credential's actor and role are still taken from the token. Clients cannot
 choose them.
 

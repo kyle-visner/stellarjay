@@ -376,7 +376,9 @@ func (s *Store) AppendAt(ctx Context, opts AppendOptions, expectedRoot string) (
 // AppendIdempotent combines optimistic concurrency with a durable request ID.
 // A retry of the same request returns its original node even if newer nodes have
 // since been appended. Reusing a request ID for different content is rejected.
-func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, requestID, requestHash string) (string, bool, error) {
+// equivalentHashes are older spellings of requestHash that also count as the
+// same content, so requests recorded under a previous hashing rule still replay.
+func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, requestID, requestHash string, equivalentHashes ...string) (string, bool, error) {
 	requestID = strings.TrimSpace(requestID)
 	requestHash = strings.TrimSpace(requestHash)
 	if requestID == "" || requestHash == "" {
@@ -387,10 +389,15 @@ func (s *Store) AppendIdempotent(ctx Context, opts AppendOptions, expectedRoot, 
 	defer s.mu.Unlock()
 
 	if record, ok := s.requestIndex[requestID]; ok {
-		if record.RequestHash != requestHash {
-			return "", false, appErr(ErrConflict, "request ID was already used for different content")
+		if record.RequestHash == requestHash {
+			return record.Hash, true, nil
 		}
-		return record.Hash, true, nil
+		for _, equivalent := range equivalentHashes {
+			if equivalent != "" && record.RequestHash == equivalent {
+				return record.Hash, true, nil
+			}
+		}
+		return "", false, appErr(ErrConflict, "request ID was already used for different content")
 	}
 
 	opts.RequestID = requestID

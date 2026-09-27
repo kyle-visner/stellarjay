@@ -811,3 +811,29 @@ func TestBDDPruneFailureDoesNotHideDurableSnapshot(t *testing.T) {
 		t.Fatalf("prune failure was not logged: %s", api.logs.String())
 	}
 }
+
+func TestAppendRetryReplaysAfterRootMoved(t *testing.T) {
+	api := newTestAPI(t)
+	writer := api.tokens["writer-agent"]
+	first := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":1},"expected_root":""}`)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first append = %d %s", first.Code, first.Body)
+	}
+	var committed struct{ Hash, Root string }
+	_ = json.Unmarshal(first.Body.Bytes(), &committed)
+	other := api.request(t, http.MethodPost, "/v1/events", writer, "another-write", `{"type":"business.fact","entity_id":"e:2","command":"fact assert","payload":{"predicate":"p","value":2},"expected_root":"`+committed.Root+`"}`)
+	if other.Code != http.StatusCreated {
+		t.Fatalf("second append = %d %s", other.Code, other.Body)
+	}
+	var moved struct{ Root string }
+	_ = json.Unmarshal(other.Body.Bytes(), &moved)
+
+	retry := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":1},"expected_root":"`+moved.Root+`"}`)
+	if retry.Code != http.StatusOK || !strings.Contains(retry.Body.String(), `"replayed":true`) || !strings.Contains(retry.Body.String(), committed.Hash) {
+		t.Fatalf("retry against a newer root should replay the original: %d %s", retry.Code, retry.Body)
+	}
+	changed := api.request(t, http.MethodPost, "/v1/events", writer, "retry-after-move", `{"type":"business.fact","entity_id":"e:1","command":"fact assert","payload":{"predicate":"p","value":9},"expected_root":"`+moved.Root+`"}`)
+	if changed.Code != http.StatusConflict || !strings.Contains(changed.Body.String(), "different content") {
+		t.Fatalf("same key with a different payload must conflict: %d %s", changed.Code, changed.Body)
+	}
+}

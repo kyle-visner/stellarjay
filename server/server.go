@@ -194,13 +194,28 @@ func (a *API) appendEvent(w http.ResponseWriter, r *http.Request) {
 	if !a.authorizeAppend(w, principal, request.Type, request.Command) {
 		return
 	}
-	canonical, err := json.Marshal(request)
+	// The request hash covers what the event says, not the root it was aimed
+	// at, so a retry of a committed write replays even after other writes have
+	// moved the root. Requests recorded before this rule hashed the whole body,
+	// expected_root included; that hash is still accepted.
+	canonical, err := json.Marshal(struct {
+		Type     string          `json:"type"`
+		EntityID string          `json:"entity_id,omitempty"`
+		Command  string          `json:"command"`
+		Payload  json.RawMessage `json:"payload"`
+	}{request.Type, request.EntityID, request.Command, request.Payload})
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	legacyCanonical, err := json.Marshal(request)
 	if err != nil {
 		writeAPIError(w, err)
 		return
 	}
 	requestIDSum := sha256.Sum256([]byte(principal.ID + "\x00" + requestKey))
 	requestHashSum := sha256.Sum256(canonical)
+	legacyHashSum := sha256.Sum256(legacyCanonical)
 	hash, replayed, err := a.store.AppendIdempotent(
 		stellarjay.Context{Actor: principal.ID, Role: principal.Role.String()},
 		stellarjay.AppendOptions{
@@ -210,6 +225,7 @@ func (a *API) appendEvent(w http.ResponseWriter, r *http.Request) {
 		*request.ExpectedRoot,
 		"sha256:"+hex.EncodeToString(requestIDSum[:]),
 		"sha256:"+hex.EncodeToString(requestHashSum[:]),
+		"sha256:"+hex.EncodeToString(legacyHashSum[:]),
 	)
 	if err != nil {
 		writeAPIError(w, err)

@@ -18,8 +18,11 @@ enforced catalog rejects types and commands that are not installed. The
 consuming agent must still validate evidence, apply its domain rules, and
 derive current state by replaying relevant events.
 
-Prefer the hosted HTTP API. Never read or edit Stellar Jay's `objects/`, `refs/`, or
-`keys/` files directly.
+Prefer the MCP server when your harness supports MCP: it applies every rule in
+this guide for you. See [docs/mcp.md](docs/mcp.md) for setup (`stellarjay-mcp`
+locally, or `https://mcp.aviansuite.com/mcp` on AvianSuite). Otherwise use the
+HTTP API as described below. Never read or edit Stellar Jay's `objects/`,
+`refs/`, or `keys/` files directly.
 
 ## Required connection inputs
 
@@ -153,7 +156,8 @@ Interpret a successful response as follows:
 
 On a timeout, connection loss, or unknown result:
 
-1. Retry the exact same body with the exact same `Idempotency-Key`.
+1. Retry the same event with the same `Idempotency-Key`. The type, entity ID,
+   command and payload must match; `expected_root` may be the newer root.
 2. If the first request committed, Stellar Jay returns the original hash with
    `replayed: true`.
 3. If it did not commit, the retry can commit normally if the expected root is

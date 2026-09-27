@@ -4,6 +4,26 @@
 
 # Stellar Jay
 
+## Agent setup
+
+Give an agent safe write access with the MCP server. Every change is kept and
+attributed to the agent that made it, and any change can be undone.
+
+```json
+{
+  "mcpServers": {
+    "aviansuite": {
+      "command": "stellarjay-mcp",
+      "env": {"STELLARJAY_URL": "https://store.example.com", "STELLARJAY_TOKEN": "writer-token"}
+    }
+  }
+}
+```
+
+Install it with `go install github.com/kyle-visner/stellarjay/cmd/stellarjay-mcp@latest`.
+Hosted on AvianSuite, use the remote server `https://mcp.aviansuite.com/mcp`
+instead. Tools and details: [docs/mcp.md](docs/mcp.md).
+
 ## TL;DR
 
 Stellar Jay is an append-only fact store for AI agents trusted with critical

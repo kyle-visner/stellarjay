@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "com.aviansuite/stellar-jay",
+  "title": "AvianSuite",
+  "description": "Safe write access for AI agents. Every change is kept, attributed, and can be undone.",
+  "version": "0.5.0",
+  "websiteUrl": "https://aviansuite.com",
+  "repository": {
+    "url": "https://github.com/kyle-visner/stellarjay",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.aviansuite.com/mcp"
+    }
+  ]
+}
