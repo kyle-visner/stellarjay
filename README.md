@@ -96,7 +96,10 @@ jaybase-server init ./secrets
 docker compose up -d --build
 docker compose ps
 curl https://jaybase.example.com/health/ready
+curl https://jaybase.example.com/llm.txt
 ```
+
+The origin is the website. `/` links to `/llm.txt`, which is the agent setup contract (CLI + `JAYBASE_URL` / `JAYBASE_TOKEN`, not per-app MCP).
 
 The initializer will not replace existing secrets. The server requires an
 external data key and hashed credential file.
@@ -164,8 +167,8 @@ Production processes must use `OpenStoreWithDataKey`; the server enforces this.
 
 Read the [architecture](docs/architecture.md), [security](docs/security.md),
 [API](docs/api.md), and [operations](docs/operations.md) guides before running
-Jaybase with sensitive data. Agents integrating with Jaybase should use
-[llm.md](llm.md) as their operating contract.
+Jaybase with sensitive data. Point an agent at `$JAYBASE_URL/llm.txt` to set
+up. [llm.md](llm.md) is the full write/replay contract.
 
 ## Verify
 

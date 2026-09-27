@@ -1,0 +1,66 @@
+# Jaybase — agent setup
+
+This origin is a Jaybase store. Aim new agents here, not at Folio, Magpie, or any other app MCP.
+
+Jaybase is the source of truth. Domain apps (Folio, Magpie, Martin, an inventory CLI, …) are optional CLIs on top of it. Do not invent an MCP server for each new use case. If you need a capability, use that app’s CLI against this origin, or call the Jaybase HTTP API directly.
+
+## Connect
+
+```sh
+export JAYBASE_URL='https://THIS-HOST'   # this origin, no path, no trailing slash
+export JAYBASE_TOKEN='writer-or-reader-token'
+```
+
+- `JAYBASE_URL` is an HTTPS origin only. No credentials, path, query, or fragment.
+- `JAYBASE_TOKEN` lives only in the environment (or a secret manager that injects the env). Send it as `Authorization: Bearer …` on `/v1` requests.
+- Never put the token in a flag, URL, payload, file in git, log, ticket, or prompt.
+- Do not use a Folio “connected agent” token, a Magpie MCP token, or any other app bearer here. Those are not Jaybase credentials.
+
+## Prove the link
+
+```sh
+curl -fsS "$JAYBASE_URL/health/ready"
+curl -fsS -H "Authorization: Bearer $JAYBASE_TOKEN" "$JAYBASE_URL/v1/root"
+```
+
+Ready returns JSON `{"status":"ready"}` with no token. Root requires the bearer and returns `{"root":""}` on an empty store or `{"root":"sha256:…"}` after writes.
+
+If `/health/ready` is Folio (`"service":"folio"`) or there is no `/v1/root`, you pointed at the wrong host. Folio UI is not Jaybase.
+
+## Use a CLI (preferred)
+
+Install the CLI you need. Point it at the same env. Do not start its MCP server.
+
+```sh
+# Magpie (accounting)
+magpie --actor owner init
+magpie --actor owner book settings get
+
+# Folio (generic lists)
+folio --actor owner init
+folio --actor owner table create --slug things --title Things --id-prefix thing --primary name
+```
+
+`--actor` is a domain identity, not authentication. Jaybase authenticates the bearer. Do not pass `--store` when `JAYBASE_URL` is set.
+
+A new inventory (or any other) CLI should speak this same HTTP API. It should not require a new MCP endpoint on this host.
+
+## Call the API yourself
+
+You may skip CLIs and use curl. Full write/replay rules: https://github.com/kyle-visner/jaybase/blob/main/llm.md
+
+Minimum write:
+
+1. `GET /v1/root` → `expected_root` (`""` only for the first event).
+2. `POST /v1/events` with `Authorization`, `Content-Type: application/json`, and `Idempotency-Key` (8–200 chars, stable per logical op).
+3. On `409 conflict`, re-read root and reconcile. Do not mint a new idempotency key for the same operation.
+4. Replay with `GET /v1/events`. Payloads are omitted until `POST /v1/events/payloads`.
+
+There is no update or delete. Corrections are new events.
+
+## Do not
+
+- Do not mount MCP at `/mcp` for Folio, Magpie, or a new app on this origin.
+- Do not read or edit `objects/`, `refs/`, or `keys/` on disk.
+- Do not put `JAYBASE_TOKEN` in `JAYBASE_URL`.
+- Do not treat a 401 as “need a different product’s token.” Rotate or use the Jaybase writer/reader token for this store.

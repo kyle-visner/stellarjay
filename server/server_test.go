@@ -537,6 +537,28 @@ func TestBDDOversizedJSONReturnsOneStructured413(t *testing.T) {
 	}
 }
 
+func TestPublicSiteAndLLMTxt(t *testing.T) {
+	api := newTestAPI(t)
+	home := api.request(t, http.MethodGet, "/", "", "", "")
+	if home.Code != http.StatusOK || !strings.Contains(home.Body.String(), "/llm.txt") {
+		t.Fatalf("home status=%d body=%s", home.Code, home.Body.String())
+	}
+	if got := home.Header().Get("Content-Type"); !strings.Contains(got, "text/html") {
+		t.Fatalf("home content-type %q", got)
+	}
+	doc := api.request(t, http.MethodGet, "/llm.txt", "", "", "")
+	if doc.Code != http.StatusOK || !strings.Contains(doc.Body.String(), "JAYBASE_URL") || !strings.Contains(doc.Body.String(), "JAYBASE_TOKEN") {
+		t.Fatalf("llm.txt status=%d body=%s", doc.Code, doc.Body.String())
+	}
+	if got := doc.Header().Get("Content-Type"); !strings.Contains(got, "text/plain") {
+		t.Fatalf("llm.txt content-type %q", got)
+	}
+	alias := api.request(t, http.MethodGet, "/llms.txt", "", "", "")
+	if alias.Code != http.StatusOK || alias.Body.String() != doc.Body.String() {
+		t.Fatalf("llms.txt should match llm.txt: %d %s", alias.Code, alias.Body.String())
+	}
+}
+
 func TestBDDIntegrityFailureUsesServerErrorAndNotReadyStatus(t *testing.T) {
 	api := newTestAPI(t)
 	root, err := api.store.Append(jaybase.Context{Actor: "fixture"}, jaybase.AppendOptions{

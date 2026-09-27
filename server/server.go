@@ -108,6 +108,9 @@ func (a *API) Handler() http.Handler {
 }
 
 func (a *API) routes() {
+	a.mux.HandleFunc("GET /{$}", a.siteHome)
+	a.mux.HandleFunc("GET /llm.txt", a.siteLLM)
+	a.mux.HandleFunc("GET /llms.txt", a.siteLLM)
 	a.mux.HandleFunc("GET /health/live", a.live)
 	a.mux.HandleFunc("GET /health/ready", a.ready)
 	a.mux.Handle("GET /v1/root", a.require(RoleReader, http.HandlerFunc(a.root)))
