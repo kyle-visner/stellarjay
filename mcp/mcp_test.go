@@ -326,3 +326,54 @@ func TestServeStdio(t *testing.T) {
 		t.Fatalf("stdio output:\n%s", out.String())
 	}
 }
+
+func TestReadOnlyAndReceiptsFromContext(t *testing.T) {
+	h := newHarness(t)
+	call := func(ctx context.Context, name string, args map[string]any) (map[string]any, bool) {
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		resp := h.srv.Handle(ctx, h.agentA, mcp.Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: params})
+		raw, _ := json.Marshal(resp.Result)
+		var result struct {
+			Structured map[string]any `json:"structuredContent"`
+			Content    []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		}
+		_ = json.Unmarshal(raw, &result)
+		if result.IsError {
+			return map[string]any{"error": result.Content[0].Text}, true
+		}
+		return result.Structured, false
+	}
+	ctx := mcp.WithReceipts(context.Background(), func(hash string) string { return "https://app.example/r/acme/" + hash })
+	out, isErr := call(ctx, "record_fact", map[string]any{"entity_id": "e", "predicate": "p", "value": 1, "operation_id": "receipt-op-1"})
+	raw, _ := json.Marshal(out)
+	if isErr || !strings.Contains(string(raw), `"receipt":"https://app.example/r/acme/sha256:`) {
+		t.Fatalf("write should carry a receipt: %s", raw)
+	}
+	ro := mcp.WithReadOnly(context.Background(), "the sandbox expired")
+	if out, isErr := call(ro, "record_fact", map[string]any{"entity_id": "e", "predicate": "p", "value": 2, "operation_id": "readonly-op-1"}); !isErr || !strings.Contains(out["error"].(string), "sandbox expired") {
+		t.Fatalf("read-only write = %v", out)
+	}
+	if _, isErr := call(ro, "save_checkpoint", map[string]any{"name": "x"}); !isErr {
+		t.Fatal("read-only checkpoint must fail")
+	}
+	if _, isErr := call(ro, "get_entity", map[string]any{"entity_id": "e"}); isErr {
+		t.Fatal("reads must still work when read-only")
+	}
+	if dry, isErr := call(ro, "undo_changes", map[string]any{"actor": "agent-a", "since": "1h"}); isErr || dry["dry_run"] != true {
+		t.Fatalf("undo dry run must still work when read-only: %v", dry)
+	}
+}
+
+func TestOnInitializeReportsClient(t *testing.T) {
+	h := newHarness(t)
+	var got string
+	h.srv.OnInitialize = func(_ context.Context, name, version string) { got = name + "/" + version }
+	h.srv.Handle(context.Background(), h.agentA, mcp.Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize",
+		Params: json.RawMessage(`{"protocolVersion":"2025-06-18","clientInfo":{"name":"claude-ai","version":"1.0"}}`)})
+	if got != "claude-ai/1.0" {
+		t.Fatalf("OnInitialize got %q", got)
+	}
+}

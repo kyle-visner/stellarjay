@@ -35,7 +35,7 @@ const (
 )
 
 // Version is reported in serverInfo. Builds may override it.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 var supportedProtocols = map[string]bool{
 	"2024-11-05": true,
@@ -53,6 +53,9 @@ Give every write an operation_id that stays the same when you retry that write, 
 type Server struct {
 	tools map[string]tool
 	order []string
+	// OnInitialize, when set, is told which MCP client connected, from the
+	// initialize request's clientInfo.
+	OnInitialize func(ctx context.Context, clientName, clientVersion string)
 }
 
 // NewServer returns a server with the AvianSuite tools.
@@ -95,6 +98,16 @@ func (s *Server) Handle(ctx context.Context, c *client.Client, req Request) *Res
 	}
 	switch req.Method {
 	case "initialize":
+		if s.OnInitialize != nil {
+			var in struct {
+				ClientInfo struct {
+					Name    string `json:"name"`
+					Version string `json:"version"`
+				} `json:"clientInfo"`
+			}
+			_ = json.Unmarshal(req.Params, &in)
+			s.OnInitialize(ctx, in.ClientInfo.Name, in.ClientInfo.Version)
+		}
 		return result(req.ID, initializeResult(req.Params))
 	case "ping":
 		return result(req.ID, map[string]any{})
@@ -232,6 +245,9 @@ type HTTPOptions struct {
 	// WWWAuthenticateFor, when set, builds the 401 challenge per request, for
 	// servers reachable under more than one host name.
 	WWWAuthenticateFor func(*http.Request) string
+	// ContextFor, when set, can add per-request settings such as WithReadOnly
+	// and WithReceipts. It runs after ClientFor succeeds.
+	ContextFor func(*http.Request, context.Context) context.Context
 }
 
 // HTTPHandler serves the MCP Streamable HTTP transport with JSON responses.
@@ -281,7 +297,11 @@ func (s *Server) HTTPHandler(opts HTTPOptions) http.Handler {
 			_, _ = rand.Read(id[:])
 			w.Header().Set("Mcp-Session-Id", hex.EncodeToString(id[:]))
 		}
-		resp := s.Handle(r.Context(), c, req)
+		ctx := r.Context()
+		if opts.ContextFor != nil {
+			ctx = opts.ContextFor(r, ctx)
+		}
+		resp := s.Handle(ctx, c, req)
 		if resp == nil {
 			w.WriteHeader(http.StatusAccepted)
 			return
