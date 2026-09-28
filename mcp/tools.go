@@ -66,13 +66,16 @@ var (
 	sinceProp = str("Start of the window: an RFC 3339 time, or a duration back from now such as 30m, 2h or 24h.")
 )
 
+const receiptHint = "When the result includes a receipt link, include it when you tell a person about the change, so they can check it and undo it."
+
 func toolset() []tool {
 	return []tool{
 		{
 			Name: "record_fact", Title: "Record a fact",
 			Description: "Use when you learn something about a customer, ticket, order or other business record and want it kept. " +
 				"Use this before, and instead of, overwriting records in other systems: the fact is kept with its evidence and attributed to you, and it can be corrected or undone later. " +
-				"Recording a new value for the same entity and predicate makes it the current value; the old one stays in history.",
+				"Recording a new value for the same entity and predicate makes it the current value; the old one stays in history. " +
+				receiptHint,
 			Schema: object([]string{"entity_id", "predicate", "value", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
 				"predicate":    str("What the fact is about, such as status, email, owner or amount_due."),
@@ -87,7 +90,7 @@ func toolset() []tool {
 		{
 			Name: "correct_fact", Title: "Correct a fact",
 			Description: "Use when a recorded fact is wrong and you know the right value. Give the hash of the fact to replace and a reason. " +
-				"The old fact stays in history, marked as superseded, so the correction can itself be undone.",
+				"The old fact stays in history, marked as superseded, so the correction can itself be undone. " + receiptHint,
 			Schema: object([]string{"entity_id", "supersedes", "value", "reason", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
 				"supersedes":   str("Hash of the fact being corrected, from get_entity or an earlier write."),
@@ -103,7 +106,7 @@ func toolset() []tool {
 		{
 			Name: "retract_fact", Title: "Retract a fact",
 			Description: "Use when a recorded fact should no longer count and there is no replacement value. Give its hash and a reason. " +
-				"The fact stays in history, marked as retracted. Retracting a retraction restores the original fact.",
+				"The fact stays in history, marked as retracted. Retracting a retraction restores the original fact. " + receiptHint,
 			Schema: object([]string{"entity_id", "hash", "reason", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
 				"hash":         str("Hash of the fact or retraction to withdraw."),
@@ -230,12 +233,16 @@ type writeResult struct {
 	EntityID string `json:"entity_id"`
 	Replayed bool   `json:"replayed"`
 	Root     string `json:"root"`
+	Receipt  string `json:"receipt,omitempty"`
 }
 
 // appendFact appends one fact event. A stale root is retried once against a
 // fresh root: fact events do not depend on each other, and the same
 // Idempotency-Key keeps the retry from writing twice.
 func appendFact(ctx context.Context, c *client.Client, entityID, command string, payload facts.Payload, key string) (writeResult, error) {
+	if err := checkWritable(ctx); err != nil {
+		return writeResult{}, err
+	}
 	req := client.AppendRequest{Type: facts.EventType, EntityID: entityID, Command: command, Payload: payload}
 	res, err := c.Append(ctx, req, key)
 	if client.IsRootConflict(err) {
@@ -244,7 +251,7 @@ func appendFact(ctx context.Context, c *client.Client, entityID, command string,
 	if err != nil {
 		return writeResult{}, err
 	}
-	return writeResult{Hash: res.Hash, EntityID: entityID, Replayed: res.Replayed, Root: res.Root}, nil
+	return writeResult{Hash: res.Hash, EntityID: entityID, Replayed: res.Replayed, Root: res.Root, Receipt: receiptFor(ctx, res.Hash)}, nil
 }
 
 type factArgs struct {
@@ -542,6 +549,7 @@ type reversal struct {
 	Value      json.RawMessage `json:"value,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
 	Retraction string          `json:"retraction,omitempty"`
+	Receipt    string          `json:"receipt,omitempty"`
 	Replayed   bool            `json:"replayed,omitempty"`
 }
 
@@ -664,6 +672,7 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 			return out, fmt.Errorf("reversed %d of %d changes, then: %s", i, len(plan), explain(err))
 		}
 		plan[i].Retraction = res.Hash
+		plan[i].Receipt = res.Receipt
 		plan[i].Replayed = res.Replayed
 	}
 	out["reversed"] = plan
@@ -677,6 +686,9 @@ func saveCheckpoint(ctx context.Context, c *client.Client, raw json.RawMessage) 
 		Name string `json:"name"`
 	}
 	if err := decode(raw, &a); err != nil {
+		return nil, err
+	}
+	if err := checkWritable(ctx); err != nil {
 		return nil, err
 	}
 	if !checkpointName.MatchString(a.Name) {
@@ -708,5 +720,9 @@ func status(ctx context.Context, c *client.Client, _ json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ready": ready, "root": root, "empty": root == "", "store": c.BaseURL()}, nil
+	out := map[string]any{"ready": ready, "root": root, "empty": root == ""}
+	if store := storeURL(ctx, c); store != "" {
+		out["store"] = store
+	}
+	return out, nil
 }

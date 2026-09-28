@@ -22,6 +22,11 @@ claude mcp add --transport http aviansuite https://mcp.aviansuite.com/mcp
 
 In Claude and ChatGPT, add a custom connector with the same URL.
 
+No AvianSuite account yet? Use `https://mcp.aviansuite.com/start` instead. It
+needs no sign-in: its `create_workspace` tool creates a free 7-day sandbox in
+the chat (the person's email and a one-line purpose) and returns a claim link
+and a personal connector URL for later chats.
+
 Self-hosted Stellar Jay: run the stdio server against your store.
 
 ```sh
@@ -71,6 +76,12 @@ Every write takes an `operation_id`. The server turns it into the store's
 `Idempotency-Key`, so a retry of the same write is recorded once, and reusing
 an `operation_id` for a different write is refused. The server reads the root
 right before each write and retries once if another writer moved it.
+
+Hosts can attach a receipt link to every write (AvianSuite links a page with the
+change and an Undo button), and can mark a request read-only, for example when
+a workspace has expired: write tools then refuse with the reason, while reads
+and undo dry runs keep working. Hosts that reach the store over an internal
+address can also set the address `status` reports as `store`, or leave it out.
 
 `undo_changes` is a dry run unless `confirm: true` is passed. It reverses the
 actor's fact events in the window, newest first, skips anything already

@@ -4,10 +4,32 @@
 
 # Stellar Jay
 
+**Safe write access for AI agents.** Stellar Jay is where your agents keep
+business data. Every change is kept, attributed to the agent that made it, and
+can be undone. Think of it as Git for your business data.
+
+- **Hosted:** [AvianSuite](https://aviansuite.com) runs Stellar Jay for you.
+  $20/month per store, with a 14-day free trial.
+- **Self-hosted:** free and open source under the AGPL. The quick start below
+  gets a store running on your machine in a few minutes.
+
 ## Agent setup
 
-Give an agent safe write access with the MCP server. Every change is kept and
-attributed to the agent that made it, and any change can be undone.
+Connect an agent with the MCP server. On AvianSuite, add the remote server:
+
+```sh
+# Claude Code
+claude mcp add --transport http aviansuite https://mcp.aviansuite.com/mcp
+```
+
+```json
+// Cursor: .cursor/mcp.json
+{"mcpServers": {"aviansuite": {"url": "https://mcp.aviansuite.com/mcp"}}}
+```
+
+In Claude and ChatGPT, add a custom connector with the same URL.
+
+For a self-hosted store, run the local server instead:
 
 ```json
 {
@@ -21,176 +43,132 @@ attributed to the agent that made it, and any change can be undone.
 ```
 
 Install it with `go install github.com/kyle-visner/stellarjay/cmd/stellarjay-mcp@latest`.
-Hosted on AvianSuite, use the remote server `https://mcp.aviansuite.com/mcp`
-instead. Tools and details: [docs/mcp.md](docs/mcp.md).
+Tools and details: [docs/mcp.md](docs/mcp.md).
 
-## TL;DR
+## Why
 
-Stellar Jay is an append-only fact store for AI agents trusted with critical
-business data. Agents can add flexible JSON facts, but the hosted API cannot
-rewrite or delete history. Every write is attributed, encrypted, safe to retry,
-checked for stale state, and available for replay.
+Clients want agents that do the work, not just read about it. But when an agent
+writes straight into a CRM or ticketing system, one bad decision or runaway
+loop can overwrite or delete records, and there is often no way back.
 
-Requires Go 1.22 or later:
+Stellar Jay is built so that can't happen:
+
+- **Nothing is overwritten or deleted.** A correction or retraction is a new
+  entry, and the original stays in history.
+- **Every change has a name on it.** Each agent gets its own token, so you can
+  see exactly which agent changed what, and when.
+- **Any change can be undone.** Roll back everything one agent did in a time
+  window, with a preview first.
+- **History is tamper-evident.** If anyone rewrites or removes past entries, it
+  shows.
+- **Retries are safe.** An agent that retries after a timeout doesn't create
+  duplicates, and a write based on stale information is refused.
+- **Your data stays flexible.** Facts are JSON, so new fields and new kinds of
+  records need no migrations.
+
+Stellar Jay records what agents say happened. It doesn't decide whether a fact
+is true; it makes sure a wrong one stays visible and correctable.
+
+## Who it's for
+
+Developers, consultants, and small teams moving from read-only copilots to
+agents that are allowed to act: operations, accounting, approvals, support, and
+other work where the data matters. Each store serves one organization. Many
+agents and apps can share it.
+
+## Quick start (self-hosted)
+
+Requires Go 1.22 or later.
+
+**1. Install and create secrets.**
+
+```sh
+go install github.com/kyle-visner/stellarjay/cmd/stellarjay-server@latest
+stellarjay-server init ./secrets
+```
+
+`init` creates a data encryption key and prints an admin, writer, and reader
+token once. Save them in a password manager.
+
+**2. Start the server.**
+
+```sh
+export STELLARJAY_DATA_DIR=./data
+export STELLARJAY_DATA_KEY_FILE=./secrets/data_key
+export STELLARJAY_AUTH_FILE=./secrets/auth.json
+stellarjay-server serve
+```
+
+It listens on `127.0.0.1:8080`.
+
+**3. Record a fact.** In another terminal:
+
+```sh
+export STELLARJAY_URL=http://127.0.0.1:8080
+export STELLARJAY_TOKEN='the-writer-token'
+
+curl -fsS -X POST "$STELLARJAY_URL/v1/events" \
+  -H "Authorization: Bearer $STELLARJAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: first-fact" \
+  --data '{
+    "type": "business.fact",
+    "entity_id": "customer-42",
+    "command": "fact assert",
+    "payload": {"predicate": "primary_contact", "value": "Ada Lovelace"},
+    "expected_root": ""
+  }'
+```
+
+`expected_root` is empty only for the first entry in a new store. After that,
+read the current value from `GET /v1/root` and send it with each write, so a
+write based on stale information is refused. The [API guide](docs/api.md)
+covers reading history, pagination, named checkpoints, and snapshots.
+
+**4. Connect an agent.** Point the MCP server at your store:
+
+```sh
+go install github.com/kyle-visner/stellarjay/cmd/stellarjay-mcp@latest
+```
+
+Then use the self-hosted config from [Agent setup](#agent-setup) with
+`STELLARJAY_URL=http://127.0.0.1:8080` and your writer token. Agents that don't
+use MCP can read `$STELLARJAY_URL/llm.txt`, which explains how to work with the
+store.
+
+## Deploy to a server
+
+For a production store with HTTPS, you need a Linux host with Docker Compose,
+ports 80 and 443 open, and a DNS record pointing a domain at the host.
 
 ```sh
 git clone https://github.com/kyle-visner/stellarjay.git
 cd stellarjay
-go install ./cmd/stellarjay-server
-stellarjay-server init ./secrets
-```
-
-The initializer prints reader, writer, and admin tokens once. Save them in a
-password manager, then continue to [Run Stellar Jay](#run-stellar-jay).
-
-## Who Stellar Jay is for
-
-Stellar Jay is for developers and small teams moving from read-only copilots to
-agents that are allowed to operate. It fits accounting, operations, compliance,
-approvals, and other work where agents write critical data, mistakes must stay
-visible and correctable, and fact shapes evolve with the job.
-
-Stellar Jay is designed for single-tenant systems: one organization, one trust
-boundary, and one writer process per store. Many agents and applications can
-share that store, including dashboards, internal tools, APIs, and automated
-workflows. Stellar Jay is not meant to be the globally distributed, multi-tenant
-backend for a web application.
-
-## Why Stellar Jay exists
-
-Traditional databases assume deterministic application code owns every read and
-write. Agents make judgment calls, retry uncertain work, and sometimes behave in
-unexpected ways—at machine speed. A mutable database can turn one bad decision,
-runaway loop, or malicious instruction into lost source data before anyone
-notices.
-
-| Agent risk | Stellar Jay response |
-| --- | --- |
-| Destructive behavior or a wrong decision | Append-only writes, credential roles, throttling, and corrections that preserve evidence |
-| A timeout or stale decision | Return the original retry result or reject a write based on old history |
-| A changing job | Accept new JSON fields and fact types without rewriting old facts |
-
-You can build these protections around a general-purpose database. Stellar Jay makes
-them part of every write instead of leaving them to each application.
-
-Stellar Jay does not decide whether a fact is true. An authorized agent can still
-write a bad fact; Stellar Jay keeps that action visible and correctable.
-
-## How it works
-
-Stellar Jay stores a linear chain of events. Each event records what happened, who
-did it, an encrypted JSON payload, and the event before it. Payloads stay
-flexible; the history rules do not.
-
-The normal write flow is:
-
-1. Read the current `root`.
-2. Submit a fact with that `expected_root` and a stable `Idempotency-Key`.
-3. Stellar Jay derives the actor, encrypts and hashes the event, writes it, and
-   advances the root.
-4. Identical retries return the original event. Stale roots and reused keys with
-   different content return `409 conflict`.
-
-Each event address depends on the event before it. Changing old content changes
-the hashes that follow, so an off-host copy of the root can detect rewritten or
-replaced history.
-
-Corrections, retractions, and approvals are new events, never edits. The hosted
-API has no update or delete path for history, and callers cannot choose their own
-identity. One writer process serializes writes for each data volume; many agents
-can use that process, but Stellar Jay is not a distributed consensus system.
-
-## Run Stellar Jay
-
-### Deploy the hosted service
-
-Prerequisites: a Linux host with Docker Compose, ports 80 and 443 reachable, and
-an A/AAAA record pointing a domain at the host.
-
-```sh
 cp .env.example .env
 # Edit .env and set STELLARJAY_DOMAIN.
 
-stellarjay-server init ./secrets
+go run ./cmd/stellarjay-server init ./secrets
 
 docker compose up -d --build
-docker compose ps
 curl https://stellarjay.example.com/health/ready
-curl https://stellarjay.example.com/llm.txt
 ```
 
-The origin is the website. `/` links to `/llm.txt`, which is the agent setup contract (CLI + `STELLARJAY_URL` / `STELLARJAY_TOKEN`, not per-app MCP).
+`init` will not replace existing secrets. Read the
+[operations runbook](docs/operations.md) for backups, token rotation, and
+upgrades, and the [security model](docs/security.md) before storing sensitive
+data. Or skip all of this and use [AvianSuite](https://aviansuite.com).
 
-The initializer will not replace existing secrets. The server requires an
-external data key and hashed credential file.
+## Documentation
 
-### Append a fact
+- [llm.md](llm.md): the guide agents follow to read and write safely
+- [docs/mcp.md](docs/mcp.md): MCP server setup and tools
+- [docs/how-it-works.md](docs/how-it-works.md): storage model, design limits,
+  and the embedded Go library
+- [docs/api.md](docs/api.md): HTTP API reference ([OpenAPI](docs/openapi.json))
+- [docs/architecture.md](docs/architecture.md), [docs/security.md](docs/security.md),
+  [docs/operations.md](docs/operations.md): running it in production
 
-Fetch the current root first:
-
-```sh
-export STELLARJAY_URL=https://stellarjay.example.com
-export STELLARJAY_TOKEN='the-writer-token'
-
-curl -fsS \
-  -H "Authorization: Bearer $STELLARJAY_TOKEN" \
-  "$STELLARJAY_URL/v1/root"
-```
-
-Use the returned root as `expected_root` and choose one stable idempotency key
-for the logical operation. Use an empty string only for the first event in a new
-database.
-
-```sh
-curl -fsS -X POST "$STELLARJAY_URL/v1/events" \
-  -H "Authorization: Bearer $STELLARJAY_TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: fact-primary-contact-v1-7f3d2a" \
-  --data '{
-    "type": "business.fact",
-    "entity_id": "01JOPAQUE8F3K2M7Q9R4T6V1WX",
-    "command": "fact assert",
-    "payload": {"primary_contact": "Ada Lovelace"},
-    "expected_root": "sha256:root-from-the-previous-response"
-  }'
-```
-
-See the [API guide](docs/api.md) for metadata-first replay, selective bounded
-payload reads, stable-root pagination, refs, snapshots, and administrative
-endpoints.
-
-### Use the embedded Go library
-
-```go
-store, err := stellarjay.OpenStore(".stellarjay")
-if err != nil { /* handle error */ }
-defer store.Close()
-root, err := store.Append(stellarjay.Context{Actor: "agent"}, stellarjay.AppendOptions{
-    Type: "business.fact", Command: "fact assert", Payload: fact,
-})
-```
-
-`OpenStore` is a local-development convenience that co-locates the key and data.
-Production processes must use `OpenStoreWithDataKey`; the server enforces this.
-
-## Production boundaries
-
-- One process owns each writable data volume.
-- Caddy handles HTTPS; bearer credentials provide `reader`, `writer`, or `admin`
-  access. An optional `operator` role manages the catalog and cannot append.
-- Omitted token scopes and an unconfigured catalog preserve open writes. A
-  scoped token, or an enforced catalog, rejects appends outside that boundary.
-- Payloads are encrypted at rest, with the data key stored outside the volume
-  and snapshots.
-- Snapshots should be copied off-host.
-- Containers run as non-root with a read-only root filesystem.
-
-Read the [architecture](docs/architecture.md), [security](docs/security.md),
-[API](docs/api.md), and [operations](docs/operations.md) guides before running
-Stellar Jay with sensitive data. Point an agent at `$STELLARJAY_URL/llm.txt` to set
-up. [llm.md](llm.md) is the full write/replay contract.
-
-## Verify
+## Development
 
 ```sh
 GOCACHE=/tmp/stellarjay-gocache go test -race ./...
@@ -201,4 +179,5 @@ docker build -t stellarjay:test .
 
 ## License
 
-AGPL-3.0-or-later. See `LICENSE`.
+AGPL-3.0-or-later. See `LICENSE`. Hosted Stellar Jay is available from
+[AvianSuite](https://aviansuite.com).
