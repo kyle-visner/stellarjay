@@ -720,5 +720,9 @@ func status(ctx context.Context, c *client.Client, _ json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ready": ready, "root": root, "empty": root == "", "store": c.BaseURL()}, nil
+	out := map[string]any{"ready": ready, "root": root, "empty": root == ""}
+	if store := storeURL(ctx, c); store != "" {
+		out["store"] = store
+	}
+	return out, nil
 }
