@@ -84,9 +84,14 @@ func (h *harness) call(c *client.Client, name string, args map[string]any) map[s
 
 func (h *harness) callRaw(c *client.Client, name string, args map[string]any) (map[string]any, bool) {
 	h.t.Helper()
+	return h.callCtx(context.Background(), c, name, args)
+}
+
+func (h *harness) callCtx(ctx context.Context, c *client.Client, name string, args map[string]any) (map[string]any, bool) {
+	h.t.Helper()
 	h.id++
 	params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
-	resp := h.srv.Handle(context.Background(), c, mcp.Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: params})
+	resp := h.srv.Handle(ctx, c, mcp.Request{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/call", Params: params})
 	raw, _ := json.Marshal(resp.Result)
 	var result struct {
 		Structured map[string]any `json:"structuredContent"`
@@ -364,6 +369,23 @@ func TestReadOnlyAndReceiptsFromContext(t *testing.T) {
 	}
 	if dry, isErr := call(ro, "undo_changes", map[string]any{"actor": "agent-a", "since": "1h"}); isErr || dry["dry_run"] != true {
 		t.Fatalf("undo dry run must still work when read-only: %v", dry)
+	}
+}
+
+func TestStatusStoreURLFromContext(t *testing.T) {
+	h := newHarness(t)
+	if st := h.call(h.agentA, "status", nil); st["store"] != h.agentA.BaseURL() {
+		t.Fatalf("status without a host URL should report the client's: %v", st)
+	}
+	public := mcp.WithStoreURL(context.Background(), "https://acme.example")
+	if st, isErr := h.callCtx(public, h.agentA, "status", nil); isErr || st["store"] != "https://acme.example" {
+		t.Fatalf("status should report the host's store URL: %v", st)
+	}
+	hidden := mcp.WithStoreURL(context.Background(), "")
+	if st, isErr := h.callCtx(hidden, h.agentA, "status", nil); isErr || st["ready"] != true {
+		t.Fatalf("status = %v", st)
+	} else if _, ok := st["store"]; ok {
+		t.Fatalf("an empty host URL should leave store out: %v", st)
 	}
 }
 
