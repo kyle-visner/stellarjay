@@ -72,6 +72,11 @@ Every write takes an `operation_id`. The server turns it into the store's
 an `operation_id` for a different write is refused. The server reads the root
 right before each write and retries once if another writer moved it.
 
+Hosts can attach a receipt link to every write (AvianSuite links a page with the
+change and an Undo button), and can mark a request read-only, for example when
+a workspace has expired: write tools then refuse with the reason, while reads
+and undo dry runs keep working.
+
 `undo_changes` is a dry run unless `confirm: true` is passed. It reverses the
 actor's fact events in the window, newest first, skips anything already
 reversed, and lists events that are not facts (such as AvianSuite table
