@@ -3,7 +3,7 @@
   "name": "com.aviansuite/stellar-jay",
   "title": "AvianSuite",
   "description": "Safe write access for AI agents. Every change is kept, attributed, and can be undone.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "websiteUrl": "https://aviansuite.com",
   "repository": {
     "url": "https://github.com/kyle-visner/stellarjay",
