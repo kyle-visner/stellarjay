@@ -140,14 +140,15 @@ func toolset() []tool {
 		{
 			Name: "undo_changes", Title: "Undo changes",
 			Description: "Use to reverse everything one agent did in a time window, for example after a bad import or a runaway loop. " +
-				"By default this is a dry run that lists what would be reversed. Call again with confirm: true to write the reversals. " +
+				"By default this is a dry run that lists what would be reversed and returns the absolute since and until it used. Call again with those exact values, its plan_id and confirm: true to write the reversals; a confirmed call refuses a relative since. " +
 				"Each reversal is a new retraction, so an undo can itself be undone. Only facts can be undone; other events are listed as skipped.",
 			Schema: object([]string{"actor", "since"}, map[string]any{
 				"actor":     str("The actor whose changes to reverse, as shown by list_changes."),
 				"since":     sinceProp,
-				"until":     str("End of the window, RFC 3339. Defaults to now."),
+				"until":     str("End of the window, RFC 3339. Defaults to now on a dry run. Required with confirm, with the value the dry run returned."),
 				"entity_id": str("Only reverse changes to this entity."),
 				"reason":    str("Why the changes are being undone. Recorded on every reversal."),
+				"plan_id":   str("The plan_id the dry run returned. When set, confirm refuses to write if the changes in the window are no longer the ones the dry run showed."),
 				"confirm":   map[string]any{"type": "boolean", "description": "Set true to write the reversals. Leave unset for a dry run."},
 			}),
 			run: undoChanges,
@@ -437,7 +438,7 @@ func getEntity(ctx context.Context, c *client.Client, raw json.RawMessage) (any,
 		ent = &facts.Entity{ID: a.EntityID, Current: []facts.Fact{}, History: []facts.Fact{}}
 	}
 	if a.IncludeHistory != nil && !*a.IncludeHistory {
-		ent.History = nil
+		ent.History = []facts.Fact{}
 	}
 	other := 0
 	for _, ev := range evs {
@@ -567,6 +568,7 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 		Until    string `json:"until"`
 		EntityID string `json:"entity_id"`
 		Reason   string `json:"reason"`
+		PlanID   string `json:"plan_id"`
 		Confirm  bool   `json:"confirm"`
 	}
 	if err := decode(raw, &a); err != nil {
@@ -580,11 +582,17 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	// Pin the window's end so a confirmed call covers exactly what its dry run
-	// showed, even when since was a relative duration.
-	if strings.TrimSpace(a.Until) == "" {
-		a.Until = w.until.Format(time.RFC3339Nano)
+	// A relative since moves between the dry run and the confirmed call, so a
+	// confirmed undo needs the absolute window its dry run returned.
+	if a.Confirm && !isAbsoluteTime(a.Since) {
+		return nil, errors.New("confirm needs the absolute window from the dry run: pass its since and until values (RFC 3339), not a duration such as " + strings.TrimSpace(a.Since))
 	}
+	if a.Confirm && strings.TrimSpace(a.Until) == "" {
+		return nil, errors.New("confirm needs the until value from the dry run, so it reverses exactly what the dry run showed")
+	}
+	// Pin both ends so the dry run's answer can be replayed exactly.
+	since := w.since.Format(time.RFC3339Nano)
+	until := w.until.Format(time.RFC3339Nano)
 	root, err := c.Root(ctx)
 	if err != nil {
 		return nil, err
@@ -642,23 +650,28 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 	if skips == nil {
 		skips = []skipped{}
 	}
+	planID := undoPlanID(a.Actor, a.EntityID, since, until, plan)
 	out := map[string]any{
-		"actor": a.Actor, "since": w.since, "until": a.Until, "root": root,
-		"skipped": skips, "count": len(plan),
+		"actor": a.Actor, "since": since, "until": until, "root": root,
+		"skipped": skips, "count": len(plan), "plan_id": planID,
 	}
 	if !a.Confirm {
 		out["dry_run"] = true
 		out["would_reverse"] = plan
 		if len(plan) > 0 {
-			out["next"] = "Call undo_changes again with the same actor, since and until, and confirm: true, to write these reversals."
+			out["next"] = "Call undo_changes again with the same actor, the since and until values above, plan_id " + planID + " and confirm: true, to write these reversals."
 		}
 		return out, nil
+	}
+	if a.PlanID != "" && a.PlanID != planID {
+		return nil, errors.New("the changes in this window are no longer what the dry run showed (plan_id does not match); run undo_changes again without confirm to review them")
 	}
 
 	reason := strings.TrimSpace(a.Reason)
 	if reason == "" {
 		reason = "undo changes by " + a.Actor
 	}
+	after := root
 	for i := range plan {
 		// One key per reversed event: a retried or repeated undo writes each
 		// reversal once.
@@ -674,9 +687,32 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 		plan[i].Retraction = res.Hash
 		plan[i].Receipt = res.Receipt
 		plan[i].Replayed = res.Replayed
+		if res.Root != "" {
+			after = res.Root
+		}
 	}
+	// root is the store after the reversals, like every other write tool;
+	// root_before is what the plan was made against.
+	out["root_before"] = root
+	out["root"] = after
 	out["reversed"] = plan
 	return out, nil
+}
+
+func isAbsoluteTime(s string) bool {
+	_, err := time.Parse(time.RFC3339, strings.TrimSpace(s))
+	return err == nil
+}
+
+// undoPlanID names exactly what a dry run would reverse, so a confirmed call
+// can prove it is reversing the same set.
+func undoPlanID(actor, entityID, since, until string, plan []reversal) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n%s\n%s\n%s\n", actor, entityID, since, until)
+	for _, r := range plan {
+		fmt.Fprintf(h, "%s\n", r.Hash)
+	}
+	return "plan:" + hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 var checkpointName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$`)
@@ -714,13 +750,40 @@ func saveCheckpoint(ctx context.Context, c *client.Client, raw json.RawMessage) 
 	return map[string]any{"name": a.Name, "root": root, "previous": previous}, nil
 }
 
+var errFoundFact = errors.New("found a fact")
+
+// noFacts reports whether the store holds no business facts. Setup events,
+// such as a workspace being initialized, do not count.
+func noFacts(ctx context.Context, c *client.Client, root string) (bool, error) {
+	if root == "" {
+		return true, nil
+	}
+	err := c.ReplayTo(ctx, root, func(ev client.Event) error {
+		if ev.Type == facts.EventType {
+			return errFoundFact
+		}
+		return nil
+	})
+	if errors.Is(err, errFoundFact) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 func status(ctx context.Context, c *client.Client, _ json.RawMessage) (any, error) {
 	ready := c.Ready(ctx) == nil
 	root, err := c.Root(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"ready": ready, "root": root, "empty": root == ""}
+	empty, err := noFacts(ctx, c, root)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"ready": ready, "root": root, "empty": empty}
+	if actor := actorFrom(ctx); actor != "" {
+		out["actor"] = actor
+	}
 	if store := storeURL(ctx, c); store != "" {
 		out["store"] = store
 	}
