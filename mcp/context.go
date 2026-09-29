@@ -11,6 +11,7 @@ const (
 	readOnlyKey ctxKey = iota
 	receiptKey
 	storeURLKey
+	actorKey
 )
 
 // WithReadOnly makes every write tool refuse with reason, for example when a
@@ -31,6 +32,18 @@ func WithReceipts(ctx context.Context, receipt func(hash string) string) context
 // cannot reach. An empty url leaves the store out of status.
 func WithStoreURL(ctx context.Context, url string) context.Context {
 	return context.WithValue(ctx, storeURLKey, url)
+}
+
+// WithActor sets the actor name this connection's writes are attributed to,
+// which the status tool reports so an agent knows what to pass to
+// undo_changes and list_changes.
+func WithActor(ctx context.Context, actor string) context.Context {
+	return context.WithValue(ctx, actorKey, actor)
+}
+
+func actorFrom(ctx context.Context) string {
+	actor, _ := ctx.Value(actorKey).(string)
+	return actor
 }
 
 func checkWritable(ctx context.Context) error {

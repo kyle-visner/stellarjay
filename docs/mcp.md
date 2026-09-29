@@ -59,7 +59,7 @@ on their own.
 | `list_changes` | What changed in a time window, by agent or entity | no |
 | `undo_changes` | Preview, then reverse everything an agent did in a window | yes |
 | `save_checkpoint` | Name the current state, such as `before-import` | yes |
-| `status` | Store health and current root | no |
+| `status` | Store health, current root, whether it holds any facts, and the caller's actor name | no |
 
 Write tools are marked `destructiveHint: false`: nothing is overwritten or
 deleted, so an undo is itself a new change that can be undone.
@@ -87,3 +87,16 @@ address can also set the address `status` reports as `store`, or leave it out.
 actor's fact events in the window, newest first, skips anything already
 reversed, and lists events that are not facts (such as AvianSuite table
 records) as skipped.
+
+The dry run returns the absolute `since` and `until` it used, and a `plan_id`
+that names exactly the changes it would reverse. A confirmed call must pass
+those `since` and `until` values (a relative `since` such as `1h` is refused,
+because it would move between the two calls) and should pass the `plan_id`;
+if the changes in the window are no longer the ones previewed, it refuses and
+writes nothing. The confirmed result's `root` is the store after the
+reversals, and `root_before` is the root the plan was made against.
+
+`status` reports `empty: true` until the store holds a business fact, so
+setup events such as a workspace being initialized do not count. Hosts can
+name the caller's actor (with `mcp.WithActor`), and `status` then returns it as
+`actor`, which is the value `list_changes` and `undo_changes` take.

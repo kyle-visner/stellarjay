@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kyle-visner/stellarjay"
 	"github.com/kyle-visner/stellarjay/client"
@@ -251,7 +252,8 @@ func TestUndoChangesDryRunThenConfirm(t *testing.T) {
 	}
 
 	// Undoing the undo brings agent-b's changes back.
-	h.call(h.agentB, "undo_changes", map[string]any{"actor": "agent-a", "since": "1h", "entity_id": "ticket:1", "confirm": true})
+	undoA := h.call(h.agentB, "undo_changes", map[string]any{"actor": "agent-a", "since": "1h", "entity_id": "ticket:1"})
+	h.call(h.agentB, "undo_changes", map[string]any{"actor": "agent-a", "since": undoA["since"], "until": undoA["until"], "plan_id": undoA["plan_id"], "entity_id": "ticket:1", "confirm": true})
 	// That reverses agent-a's retractions (bringing agent-b's writes back) and
 	// agent-a's own first write, so agent-b's values are current again.
 	restored := currentValues(t, h.call(h.agentA, "get_entity", map[string]any{"entity_id": "ticket:1"}))
@@ -397,5 +399,84 @@ func TestOnInitializeReportsClient(t *testing.T) {
 		Params: json.RawMessage(`{"protocolVersion":"2025-06-18","clientInfo":{"name":"claude-ai","version":"1.0"}}`)})
 	if got != "claude-ai/1.0" {
 		t.Fatalf("OnInitialize got %q", got)
+	}
+}
+
+func TestUndoChangesConfirmIsExact(t *testing.T) {
+	h := newHarness(t)
+	h.call(h.agentB, "record_fact", map[string]any{"entity_id": "ticket:1", "predicate": "status", "value": "closed", "operation_id": "bot-exact-1"})
+	h.call(h.agentB, "record_fact", map[string]any{"entity_id": "ticket:2", "predicate": "status", "value": "closed", "operation_id": "bot-exact-2"})
+
+	dry := h.call(h.agentA, "undo_changes", map[string]any{"actor": "agent-b", "since": "1h"})
+	for _, k := range []string{"since", "until", "plan_id"} {
+		if s, _ := dry[k].(string); s == "" {
+			t.Fatalf("dry run should return %s: %v", k, dry)
+		}
+	}
+	if _, err := time.Parse(time.RFC3339, dry["since"].(string)); err != nil {
+		t.Fatalf("the dry run's since must be absolute: %v", dry["since"])
+	}
+
+	// A relative since, or a missing until, cannot be confirmed.
+	if out, isErr := h.callRaw(h.agentA, "undo_changes", map[string]any{"actor": "agent-b", "since": "1h", "until": dry["until"], "confirm": true}); !isErr || !strings.Contains(out["error"].(string), "absolute") {
+		t.Fatalf("a relative since must be refused on confirm: %v", out)
+	}
+	if out, isErr := h.callRaw(h.agentA, "undo_changes", map[string]any{"actor": "agent-b", "since": dry["since"], "confirm": true}); !isErr {
+		t.Fatalf("confirm without until must be refused: %v", out)
+	}
+
+	// A change that lands after the dry run, inside the window, is not silently reversed.
+	h.call(h.agentB, "record_fact", map[string]any{"entity_id": "ticket:3", "predicate": "status", "value": "closed", "operation_id": "bot-exact-3"})
+	later := time.Now().UTC().Add(time.Minute).Format(time.RFC3339Nano)
+	if out, isErr := h.callRaw(h.agentA, "undo_changes", map[string]any{"actor": "agent-b", "since": dry["since"], "until": later, "plan_id": dry["plan_id"], "confirm": true}); !isErr || !strings.Contains(out["error"].(string), "plan_id") {
+		t.Fatalf("a plan that changed must be refused: %v", out)
+	}
+	if got := currentValues(t, h.call(h.agentA, "get_entity", map[string]any{"entity_id": "ticket:3"})); got["status"] != "closed" {
+		t.Fatal("a refused confirm must not write")
+	}
+
+	// With the dry run's own window, the late write is outside it and the plan holds.
+	rootBefore := h.call(h.agentA, "status", nil)["root"]
+	done := h.call(h.agentA, "undo_changes", map[string]any{"actor": "agent-b", "since": dry["since"], "until": dry["until"], "plan_id": dry["plan_id"], "confirm": true})
+	if len(done["reversed"].([]any)) != 2 {
+		t.Fatalf("confirm should reverse exactly the previewed changes: %v", done)
+	}
+
+	// The confirmed call reports the store as it is after its own writes.
+	st := h.call(h.agentA, "status", nil)
+	if done["root"] != st["root"] || done["root_before"] != rootBefore || done["root"] == done["root_before"] {
+		t.Fatalf("confirm root = %v (before %v), status root = %v", done["root"], done["root_before"], st["root"])
+	}
+}
+
+func TestGetEntityWithoutHistoryIsEmptyList(t *testing.T) {
+	h := newHarness(t)
+	h.call(h.agentA, "record_fact", map[string]any{"entity_id": "customer:1", "predicate": "name", "value": "Ada", "operation_id": "history-op-1"})
+	entity := h.call(h.agentA, "get_entity", map[string]any{"entity_id": "customer:1", "include_history": false})
+	history, ok := entity["history"].([]any)
+	if !ok || len(history) != 0 {
+		t.Fatalf("history = %#v, want an empty list", entity["history"])
+	}
+}
+
+func TestStatusEmptyIgnoresSetupEventsAndReportsActor(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.agentA.Append(context.Background(), client.AppendRequest{Type: "aviansuite.workspace.initialized.v1", Command: "initialize", Payload: map[string]any{"ok": true}}, "setup-event-1"); err != nil {
+		t.Fatal(err)
+	}
+	st := h.call(h.agentA, "status", nil)
+	if st["empty"] != true || st["root"] == "" {
+		t.Fatalf("a store with only a setup event has no facts: %v", st)
+	}
+	if _, has := st["actor"]; has {
+		t.Fatalf("no actor unless the host names one: %v", st)
+	}
+	h.call(h.agentA, "record_fact", map[string]any{"entity_id": "e", "predicate": "p", "value": 1, "operation_id": "status-empty-1"})
+	if st := h.call(h.agentA, "status", nil); st["empty"] != false {
+		t.Fatalf("a store with a fact is not empty: %v", st)
+	}
+	out, isErr := h.callCtx(mcp.WithActor(context.Background(), "agent-claude-code-ops-writer-8f0b45"), h.agentA, "status", nil)
+	if isErr || out["actor"] != "agent-claude-code-ops-writer-8f0b45" {
+		t.Fatalf("status should report the actor the host named: %v", out)
 	}
 }
