@@ -73,7 +73,7 @@ func toolset() []tool {
 		{
 			Name: "record_fact", Title: "Record a fact",
 			Description: "Use when you learn something about a customer, ticket, order or other business record and want it kept. " +
-				"Use this before, and instead of, overwriting records in other systems: the fact is kept with its evidence and attributed to you, and it can be corrected or undone later. " +
+				"The fact is kept with its evidence and attributed to you, and it can be corrected or undone later. " +
 				"Recording a new value for the same entity and predicate makes it the current value; the old one stays in history. " +
 				receiptHint,
 			Schema: object([]string{"entity_id", "predicate", "value", "operation_id"}, map[string]any{
