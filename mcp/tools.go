@@ -38,6 +38,10 @@ func (t tool) descriptor() map[string]any {
 	}
 }
 
+// anyJSONType lets a fact value be any JSON value except null, while still
+// declaring a type: connector directories flag parameters without one.
+var anyJSONType = []string{"string", "number", "boolean", "object", "array"}
+
 func object(required []string, props map[string]any) map[string]any {
 	schema := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
 	if len(required) > 0 {
@@ -79,7 +83,7 @@ func toolset() []tool {
 			Schema: object([]string{"entity_id", "predicate", "value", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
 				"predicate":    str("What the fact is about, such as status, email, owner or amount_due."),
-				"value":        map[string]any{"description": "The value. Any JSON: string, number, boolean, object or array."},
+				"value":        map[string]any{"type": anyJSONType, "description": "The value. Any JSON: string, number, boolean, object or array."},
 				"evidence":     evidenceProp,
 				"observed_at":  str("When the fact was observed at the source, RFC 3339. Defaults to unset."),
 				"confidence":   map[string]any{"type": "number", "minimum": 0, "maximum": 1, "description": "Optional confidence from 0 to 1. Leave unset when you are sure."},
@@ -95,7 +99,7 @@ func toolset() []tool {
 				"entity_id":    entityProp,
 				"supersedes":   str("Hash of the fact being corrected, from get_entity or an earlier write."),
 				"predicate":    str("Predicate of the corrected fact. Defaults to the predicate of the fact being corrected."),
-				"value":        map[string]any{"description": "The corrected value. Any JSON."},
+				"value":        map[string]any{"type": anyJSONType, "description": "The corrected value. Any JSON: string, number, boolean, object or array."},
 				"reason":       str("Why the earlier fact was wrong."),
 				"evidence":     evidenceProp,
 				"observed_at":  str("When the corrected value was observed, RFC 3339."),
