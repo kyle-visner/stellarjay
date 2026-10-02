@@ -45,7 +45,7 @@ var supportedProtocols = map[string]bool{
 
 const instructions = `AvianSuite keeps business facts for agents. Nothing is ever overwritten: every write is kept, attributed to the agent that made it, and can be undone.
 
-Record what you learn with record_fact, fix a mistake with correct_fact, and withdraw a fact with retract_fact. Read an entity's current facts and history with get_entity. To reverse everything an agent did in a time window, call list_changes to see it, then undo_changes (a dry run by default; pass confirm: true to write). Name a known-good state with save_checkpoint before a risky job.
+Record what you learn with record_fact, including a value that has changed since. Fix a value that was wrong when recorded with correct_fact, and withdraw a fact with retract_fact. Read an entity's current facts and history with get_entity. To reverse everything an agent did in a time window, call list_changes to see it, then undo_changes (a dry run by default; pass confirm: true to write). Name a known-good state with save_checkpoint before a risky job, and restore it later with undo_changes and that checkpoint.
 
 Give every write an operation_id that stays the same when you retry that write, and differs for every new write.`
 

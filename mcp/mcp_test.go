@@ -262,6 +262,39 @@ func TestUndoChangesDryRunThenConfirm(t *testing.T) {
 	}
 }
 
+func TestUndoChangesToCheckpoint(t *testing.T) {
+	h := newHarness(t)
+	if out, isErr := h.callRaw(h.agentA, "undo_changes", map[string]any{"checkpoint": "before-import"}); !isErr || !strings.Contains(out["error"].(string), "no checkpoint named") {
+		t.Fatalf("an unknown checkpoint must fail plainly: %v", out)
+	}
+	h.call(h.agentA, "record_fact", map[string]any{"entity_id": "customer:1", "predicate": "email", "value": "a@old.example", "operation_id": "cp-seed-email"})
+	seed := h.call(h.agentA, "record_fact", map[string]any{"entity_id": "customer:1", "predicate": "tier", "value": "gold", "operation_id": "cp-seed-tier"})
+	h.call(h.agentA, "save_checkpoint", map[string]any{"name": "before-import"})
+	before := currentValues(t, h.call(h.agentA, "get_entity", map[string]any{"entity_id": "customer:1"}))
+
+	// After the checkpoint: two agents correct, retract and add facts, and
+	// one adds a fact and then retracts it again.
+	h.call(h.agentB, "correct_fact", map[string]any{"entity_id": "customer:1", "supersedes": seed["hash"], "value": "silver", "reason": "import", "operation_id": "cp-import-tier"})
+	h.call(h.agentB, "record_fact", map[string]any{"entity_id": "customer:1", "predicate": "email", "value": "a@new.example", "operation_id": "cp-import-email"})
+	temp := h.call(h.agentA, "record_fact", map[string]any{"entity_id": "customer:2", "predicate": "status", "value": "lead", "operation_id": "cp-temp-status"})
+	h.call(h.agentA, "retract_fact", map[string]any{"entity_id": "customer:2", "hash": temp["hash"], "reason": "dupe", "operation_id": "cp-temp-retract"})
+
+	if out, isErr := h.callRaw(h.agentA, "undo_changes", map[string]any{"checkpoint": "before-import", "since": "1h"}); !isErr {
+		t.Fatalf("since and checkpoint together must fail: %v", out)
+	}
+	dry := h.call(h.agentA, "undo_changes", map[string]any{"checkpoint": "before-import"})
+	if dry["dry_run"] != true || dry["count"].(float64) != 4 || dry["checkpoint_root"] == "" {
+		t.Fatalf("dry run = %v", dry)
+	}
+	h.call(h.agentA, "undo_changes", map[string]any{"checkpoint": "before-import", "until": dry["until"], "plan_id": dry["plan_id"], "confirm": true})
+	if after := currentValues(t, h.call(h.agentA, "get_entity", map[string]any{"entity_id": "customer:1"})); len(after) != len(before) || after["tier"] != "gold" || after["email"] != "a@old.example" {
+		t.Fatalf("after restore = %v, want %v", after, before)
+	}
+	if other := currentValues(t, h.call(h.agentA, "get_entity", map[string]any{"entity_id": "customer:2"})); len(other) != 0 {
+		t.Fatalf("a fact added and retracted after the checkpoint must stay gone: %v", other)
+	}
+}
+
 func TestSaveCheckpointAndStatus(t *testing.T) {
 	h := newHarness(t)
 	if out, isErr := h.callRaw(h.agentA, "save_checkpoint", map[string]any{"name": "before-import"}); !isErr {
