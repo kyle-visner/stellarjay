@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.aviansuite/stellar-jay",
   "title": "AvianSuite",
-  "description": "Safe write access for AI agents. Every change is kept, attributed, and can be undone.",
-  "version": "0.6.0",
+  "description": "AI agents run business processes on your business data. Every change is attributed and reversible.",
+  "version": "0.7.1",
   "websiteUrl": "https://aviansuite.com",
   "repository": {
     "url": "https://github.com/kyle-visner/stellarjay",
