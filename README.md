@@ -4,9 +4,17 @@
 
 # Stellar Jay
 
-**Safe write access for AI agents.** Stellar Jay is where your agents keep
-business data. Every change is kept, attributed to the agent that made it, and
-can be undone. Think of it as Git for your business data.
+**Stellar Jay is the open-source data store that powers
+[AvianSuite](https://aviansuite.com).** AvianSuite is an agent-native business
+data platform: AI agents run business processes like sales follow-up and
+bookkeeping on your company's data, and every change they make is versioned,
+attributed to the agent that made it, and reversible. Think of it as Git for
+your business data.
+
+Agents connect over MCP. The server is listed in the MCP registry as
+`com.aviansuite/stellar-jay`, and the CRM ([Martin](https://github.com/kyle-visner/martin))
+and bookkeeping ([Magpie](https://github.com/kyle-visner/magpie)) apps run on
+the same store. This project was formerly called JayBase.
 
 - **Hosted:** [AvianSuite](https://aviansuite.com) runs Stellar Jay for you.
   $20/month per store, with a 14-day free trial.
