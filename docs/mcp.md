@@ -24,8 +24,9 @@ In Claude and ChatGPT, add a custom connector with the same URL.
 
 No AvianSuite account yet? The agent registers with
 [auth.md](https://aviansuite.com/auth.md) using the person's email. The person
-opens the link it gets, sets a password to create a free 7-day sandbox (no
-card), and types the six-digit code; the agent then gets an access token for
+opens the link it gets, types the six-digit code, confirms their email, and
+sets a password to create a free 7-day sandbox (no card); the agent then gets
+an access token for
 `https://mcp.aviansuite.com/mcp`.
 
 Self-hosted Stellar Jay: run the stdio server against your store.
