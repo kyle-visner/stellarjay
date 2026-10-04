@@ -22,10 +22,11 @@ claude mcp add --transport http aviansuite https://mcp.aviansuite.com/mcp
 
 In Claude and ChatGPT, add a custom connector with the same URL.
 
-No AvianSuite account yet? Use `https://mcp.aviansuite.com/start` instead. It
-needs no sign-in: its `create_workspace` tool creates a free 7-day sandbox in
-the chat (the person's email and a one-line purpose) and returns a claim link
-and a personal connector URL for later chats.
+No AvianSuite account yet? The agent registers with
+[auth.md](https://aviansuite.com/auth.md) using the person's email. The person
+opens the link it gets, sets a password to create a free 7-day sandbox (no
+card), and types the six-digit code; the agent then gets an access token for
+`https://mcp.aviansuite.com/mcp`.
 
 Self-hosted Stellar Jay: run the stdio server against your store.
 
