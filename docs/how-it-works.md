@@ -49,13 +49,13 @@ can use that process, but Stellar Jay is not a distributed consensus system.
 
 ## Deployment scope
 
-Stellar Jay is designed for single-tenant systems: one organization, one trust
-boundary, and one writer process per store. Many agents and applications can
-share that store, including dashboards, internal tools, APIs, and automated
-workflows. Stellar Jay is not meant to be the globally distributed, multi-tenant
-backend for a web application.
+Each Stellar Jay store serves one organization: one trust boundary and one
+writer process. Many agents and applications share that store, including
+dashboards, internal tools, APIs and automated workflows. Hosting many
+organizations means one store per organization, each with its own key, which is
+how AvianSuite runs it.
 
-## Production boundaries
+## Production setup
 
 - One process owns each writable data volume.
 - Caddy handles HTTPS; bearer credentials provide `reader`, `writer`, or `admin`
@@ -67,9 +67,8 @@ backend for a web application.
 - Snapshots should be copied off-host.
 - Containers run as non-root with a read-only root filesystem.
 
-Read the [architecture](architecture.md), [security](security.md),
-[API](api.md), and [operations](operations.md) guides before running Stellar Jay
-with sensitive data.
+The [architecture](architecture.md), [security](security.md), [API](api.md)
+and [operations](operations.md) guides cover each of these in detail.
 
 ## Embedded Go library
 
