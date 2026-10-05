@@ -20,9 +20,9 @@ data volume          backup volume -> mandatory off-host copy
 data-key file and credential hashes are mounted as separate Docker secrets
 ```
 
-The service is intentionally single-writer. The current storage format is a
-linear Merkle chain with a mutable root ref, not a distributed consensus
-protocol. One process serializes writes with an in-process lock and holds an
+The service uses a single writer, which keeps every write in one ordered
+history. The storage format is a linear Merkle chain with a mutable root ref.
+One process serializes writes with an in-process lock and holds an
 advisory volume lock at `.writer.lock`; a second process fails to open the same
 store. Refs are atomically replaced only after a content-addressed node is
 durable. Do not run multiple Stellar Jay replicas against one volume, including on a
@@ -78,11 +78,9 @@ verification still authenticates every reachable node and payload.
 
 ## Scaling boundary
 
-The reference deployment scales clients, not writers. It is appropriate for a
-small organization whose fact stream fits on one durable host and whose recovery
-objective is satisfied by frequent off-host snapshots.
+The reference deployment serves any number of clients through one writer per
+organization, on one durable host, with frequent off-host snapshots for
+recovery.
 
-A future multi-region version must replace the filesystem ref update with a
-transactional coordination layer (for example, a database row locked by version)
-or define explicit branch/merge semantics. Placing this version on a shared
-network filesystem or increasing the replica count is not a valid substitute.
+Run each store on local disk with a single replica; the writer lock and atomic
+ref updates rely on it.
