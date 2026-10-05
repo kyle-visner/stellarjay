@@ -17,11 +17,15 @@ notices.
 | A timeout or stale decision | Return the original retry result or reject a write based on old history |
 | A changing job | Accept new JSON fields and fact types without rewriting old facts |
 
-You can build these protections around a general-purpose database. Stellar Jay
-makes them part of every write instead of leaving them to each application.
+You can try to build these protections around a general-purpose database, but
+its schema is fixed. Every new field or record type means a migration, and the
+audit tables, triggers, and snapshots have to be migrated along with it. Teams
+that start with "Postgres plus an audit log" end up building and maintaining an
+application on top of the database just to keep history, undo, and attribution
+working. Stellar Jay makes these protections part of every write, and new kinds
+of facts need no migrations.
 
-Stellar Jay does not decide whether a fact is true. An authorized agent can still
-write a bad fact; Stellar Jay keeps that action visible and correctable.
+When an agent writes a bad fact, Stellar Jay keeps it visible and correctable.
 
 ## Storage model
 
@@ -44,18 +48,16 @@ replaced history.
 
 Corrections, retractions, and approvals are new events, never edits. The hosted
 API has no update or delete path for history, and callers cannot choose their own
-identity. One writer process serializes writes for each data volume; many agents
-can use that process, but Stellar Jay is not a distributed consensus system.
+identity. One writer process serializes writes for each data volume, and many agents
+share that process.
 
 ## Deployment scope
 
-Stellar Jay is designed for single-tenant systems: one organization, one trust
-boundary, and one writer process per store. Many agents and applications can
-share that store, including dashboards, internal tools, APIs, and automated
-workflows. Stellar Jay is not meant to be the globally distributed, multi-tenant
-backend for a web application.
+Each store serves one organization: one trust boundary and one writer process.
+Many agents and applications share that store, including dashboards, internal
+tools, APIs, and automated workflows.
 
-## Production boundaries
+## Production setup
 
 - One process owns each writable data volume.
 - Caddy handles HTTPS; bearer credentials provide `reader`, `writer`, or `admin`
@@ -67,9 +69,9 @@ backend for a web application.
 - Snapshots should be copied off-host.
 - Containers run as non-root with a read-only root filesystem.
 
-Read the [architecture](architecture.md), [security](security.md),
-[API](api.md), and [operations](operations.md) guides before running Stellar Jay
-with sensitive data.
+The [architecture](architecture.md), [security](security.md),
+[API](api.md), and [operations](operations.md) guides cover each of these in
+depth.
 
 ## Embedded Go library
 

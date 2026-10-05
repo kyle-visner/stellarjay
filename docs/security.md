@@ -21,25 +21,30 @@
 - The application container is non-root and read-only except for its data and
   backup volumes and a small tmpfs; Linux capabilities are removed.
 
-## What it does not protect
+## What the operator controls
 
-- A host-root compromise can read the mounted data key and live process memory.
-- An authorized reader can exfiltrate decrypted facts. An authorized writer can
-  append false facts; append-only attribution is not truth validation.
-- Hash links cannot alone detect a volume rolled back to an older valid root.
-  Root pins and snapshots must live in a separate trust domain.
-- Metadata (`type`, `entity_id`, `actor`, `role`, `command`, `created_at`,
-  parents, and graph shape) is plaintext.
-- Key migration is offline and changes node hashes. There is no in-place or
-  transparent multi-key rotation window.
+- Host access. The data key is mounted on the host and decrypted facts live in
+  process memory, so restrict root and SSH access to the host.
+- Who can read and write. Issue `reader` tokens to agents that need decrypted
+  facts, and `writer` tokens to agents trusted to append. Every append is
+  attributed to its token and can be corrected or undone.
+- Root pins and snapshots. Keep them in a separate trust domain so a volume
+  restored to an older root is caught; see [Rollback detection](#rollback-detection).
+- Where sensitive values go. Payloads are encrypted; metadata (`type`,
+  `entity_id`, `actor`, `role`, `command`, `created_at`, parents, and graph
+  shape) is stored in plaintext so history can be indexed and replayed. Put
+  sensitive values in payloads and use opaque identifiers in metadata.
+- Key rotation. Rotate the data key with the offline migration in the
+  [operations runbook](operations.md); it writes a new store with new node
+  hashes.
 
-## Single-tenant financial deployment profile
+## Financial deployment profile
 
-Stellar Jay is intentionally one organization, one process, one volume, and one
-active data key. `reader`, `writer`, and `admin` are cumulative coarse roles.
-`operator` is a separate catalog role, not a second writer. This is not
-multi-tenant isolation or per-entity authorization. Use separate deployments
-and keys when two parties must not trust the same admin.
+Each deployment serves one organization, with one process, one volume, and one
+active data key. `reader`, `writer`, and `admin` are cumulative roles, and
+`allow` patterns narrow a token to a namespace. `operator` is a separate catalog
+role, not a second writer. Give each party that must not share an admin its own
+deployment and key.
 
 Give an agent `operator` when it may install types, and a scoped `writer` when
 it may append. Do not give that schema agent `admin`: admin remains a superset
@@ -113,8 +118,8 @@ writes. Never keep the only pin on the Stellar Jay volume.
 - Patch hosts and images; Dependabot tracks repository dependencies.
 - Permit public 80/443 and restricted administrative SSH only. Never publish
   Stellar Jay port 8080.
-- Use full-disk encryption and an edge firewall or WAF. Application throttling is
-  a backstop, not volumetric denial-of-service protection.
+- Use full-disk encryption and an edge firewall or WAF. Application throttling
+  complements the edge firewall, which handles volumetric traffic.
 - Send JSON logs to a restricted destination. Stellar Jay never logs bodies or
   Authorization headers. Event reads record `include_payload`, the actual
   `payloads_decrypted` count, `limit`, and `after_present`. Selective payload

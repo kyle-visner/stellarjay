@@ -10,9 +10,9 @@ It records who asserted something, when it was asserted, the command that caused
 the assertion, and an encrypted JSON payload. Its hash-linked history is the
 source of truth.
 
-Stellar Jay does not decide whether a fact is true or materialize current entity
-state. It does not enforce a domain schema unless an operator has installed a
-catalog. Installed types and commands are an exact list outside the event
+Stellar Jay records facts as they are asserted; the consuming agent judges them
+and derives current entity state. Schemas are optional: an operator can install a
+catalog to enforce one. Installed types and commands are an exact list outside the event
 history. Tokens with no `allow` block keep role-wide access, except that an
 enforced catalog rejects types and commands that are not installed. The
 consuming agent must still validate evidence, apply its domain rules, and
