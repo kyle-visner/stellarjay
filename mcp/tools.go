@@ -76,9 +76,11 @@ func toolset() []tool {
 	return []tool{
 		{
 			Name: "record_fact", Title: "Record a fact",
-			Description: "Use when you learn something about a customer, ticket, order or other business record and want it kept. " +
+			Description: "Use when you learn something about a customer, ticket, order or other business record and want it kept, " +
+				"including when a value has changed in the real world, such as a customer moving to a new address. " +
+				"Recording a new value for the same entity and predicate makes it the current value; the old one stays in history as what was true before. " +
+				"If the recorded value was never right, use correct_fact instead. " +
 				"The fact is kept with its evidence and attributed to you, and it can be corrected or undone later. " +
-				"Recording a new value for the same entity and predicate makes it the current value; the old one stays in history. " +
 				receiptHint,
 			Schema: object([]string{"entity_id", "predicate", "value", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
@@ -93,7 +95,9 @@ func toolset() []tool {
 		},
 		{
 			Name: "correct_fact", Title: "Correct a fact",
-			Description: "Use when a recorded fact is wrong and you know the right value. Give the hash of the fact to replace and a reason. " +
+			Description: "Use when a recorded fact was wrong when it was recorded, such as a typo or the wrong customer, and you know the right value. " +
+				"Give the hash of the fact to replace and a reason. " +
+				"If the old value was right then and has since changed, use record_fact instead, so history shows both. " +
 				"The old fact stays in history, marked as superseded, so the correction can itself be undone. " + receiptHint,
 			Schema: object([]string{"entity_id", "supersedes", "value", "reason", "operation_id"}, map[string]any{
 				"entity_id":    entityProp,
@@ -143,24 +147,28 @@ func toolset() []tool {
 		},
 		{
 			Name: "undo_changes", Title: "Undo changes",
-			Description: "Use to reverse everything one agent did in a time window, for example after a bad import or a runaway loop. " +
-				"By default this is a dry run that lists what would be reversed and returns the absolute since and until it used. Call again with those exact values, its plan_id and confirm: true to write the reversals; a confirmed call refuses a relative since. " +
+			Description: "Use to reverse one agent's changes in a time window, for example after a bad import or a runaway loop, " +
+				"or to restore the store to a checkpoint saved with save_checkpoint by reversing every change made after it. " +
+				"Pass since for a window, or checkpoint to restore; with a checkpoint, actor is optional and limits the restore to that agent. " +
+				"By default this is a dry run that lists what would be reversed and returns the absolute until (and since) it used. Call again with those exact values, its plan_id and confirm: true to write the reversals; a confirmed call refuses a relative since. " +
 				"Each reversal is a new retraction, so an undo can itself be undone. Only facts can be undone; other events are listed as skipped.",
-			Schema: object([]string{"actor", "since"}, map[string]any{
-				"actor":     str("The actor whose changes to reverse, as shown by list_changes."),
-				"since":     sinceProp,
-				"until":     str("End of the window, RFC 3339. Defaults to now on a dry run. Required with confirm, with the value the dry run returned."),
-				"entity_id": str("Only reverse changes to this entity."),
-				"reason":    str("Why the changes are being undone. Recorded on every reversal."),
-				"plan_id":   str("The plan_id the dry run returned. When set, confirm refuses to write if the changes in the window are no longer the ones the dry run showed."),
-				"confirm":   map[string]any{"type": "boolean", "description": "Set true to write the reversals. Leave unset for a dry run."},
+			Schema: object(nil, map[string]any{
+				"actor":      str("The actor whose changes to reverse, as shown by list_changes. Required with since; optional with checkpoint."),
+				"since":      str("Start of the window: an RFC 3339 time, or a duration back from now such as 30m, 2h or 24h. Give since or checkpoint, not both."),
+				"checkpoint": str("Name of a checkpoint saved with save_checkpoint. Reverses the changes made after it, restoring the facts to that state. Give since or checkpoint, not both."),
+				"until":      str("End of the window, RFC 3339. Defaults to now on a dry run. Required with confirm, with the value the dry run returned."),
+				"entity_id":  str("Only reverse changes to this entity."),
+				"reason":     str("Why the changes are being undone. Recorded on every reversal."),
+				"plan_id":    str("The plan_id the dry run returned. When set, confirm refuses to write if the changes in the window are no longer the ones the dry run showed."),
+				"confirm":    map[string]any{"type": "boolean", "description": "Set true to write the reversals. Leave unset for a dry run."},
 			}),
 			run: undoChanges,
 		},
 		{
 			Name: "save_checkpoint", Title: "Save a checkpoint",
 			Description: "Use before a risky job, such as an import, to name the current state (for example before-import). " +
-				"Saving an existing name moves it to the current state. Checkpoints never change any facts.",
+				"To go back to it later, call undo_changes with checkpoint set to this name. " +
+				"Saving an existing name moves it to the current state. Saving a checkpoint never changes any facts.",
 			Schema: object([]string{"name"}, map[string]any{
 				"name": str("Checkpoint name: letters, digits, dot, dash or underscore, up to 100 characters."),
 			}),
@@ -168,7 +176,7 @@ func toolset() []tool {
 		},
 		{
 			Name: "status", Title: "Status", ReadOnly: true,
-			Description: "Use to check that the store is reachable and healthy, and to get its current root.",
+			Description: "Use to check that the store is reachable and healthy, whether it holds any facts yet, and which actor name your writes are attributed to. Also returns the current root.",
 			Schema:      object(nil, map[string]any{}),
 			run:         status,
 		},
@@ -567,29 +575,50 @@ type skipped struct {
 
 func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (any, error) {
 	var a struct {
-		Actor    string `json:"actor"`
-		Since    string `json:"since"`
-		Until    string `json:"until"`
-		EntityID string `json:"entity_id"`
-		Reason   string `json:"reason"`
-		PlanID   string `json:"plan_id"`
-		Confirm  bool   `json:"confirm"`
+		Actor      string `json:"actor"`
+		Since      string `json:"since"`
+		Checkpoint string `json:"checkpoint"`
+		Until      string `json:"until"`
+		EntityID   string `json:"entity_id"`
+		Reason     string `json:"reason"`
+		PlanID     string `json:"plan_id"`
+		Confirm    bool   `json:"confirm"`
 	}
 	if err := decode(raw, &a); err != nil {
 		return nil, err
 	}
-	if err := required(map[string]string{"actor": a.Actor, "since": a.Since}); err != nil {
-		return nil, err
+	a.Checkpoint = strings.TrimSpace(a.Checkpoint)
+	byCheckpoint := a.Checkpoint != ""
+	switch {
+	case byCheckpoint && strings.TrimSpace(a.Since) != "":
+		return nil, errors.New("give since or checkpoint, not both")
+	case !byCheckpoint:
+		if err := required(map[string]string{"actor": a.Actor, "since": a.Since}); err != nil {
+			return nil, fmt.Errorf("%v (or pass checkpoint to restore a saved checkpoint)", err)
+		}
 	}
 	now := time.Now().UTC()
-	w, err := parseWindow(a.Since, a.Until, now)
-	if err != nil {
-		return nil, err
-	}
-	// A relative since moves between the dry run and the confirmed call, so a
-	// confirmed undo needs the absolute window its dry run returned.
-	if a.Confirm && !isAbsoluteTime(a.Since) {
-		return nil, errors.New("confirm needs the absolute window from the dry run: pass its since and until values (RFC 3339), not a duration such as " + strings.TrimSpace(a.Since))
+	var w window
+	if byCheckpoint {
+		// The checkpoint, not a time, bounds the start; until still pins the end.
+		w.until = now
+		if until := strings.TrimSpace(a.Until); until != "" {
+			t, err := time.Parse(time.RFC3339, until)
+			if err != nil {
+				return nil, errors.New("until must be an RFC 3339 time")
+			}
+			w.until = t
+		}
+	} else {
+		var err error
+		if w, err = parseWindow(a.Since, a.Until, now); err != nil {
+			return nil, err
+		}
+		// A relative since moves between the dry run and the confirmed call, so a
+		// confirmed undo needs the absolute window its dry run returned.
+		if a.Confirm && !isAbsoluteTime(a.Since) {
+			return nil, errors.New("confirm needs the absolute window from the dry run: pass its since and until values (RFC 3339), not a duration such as " + strings.TrimSpace(a.Since))
+		}
 	}
 	if a.Confirm && strings.TrimSpace(a.Until) == "" {
 		return nil, errors.New("confirm needs the until value from the dry run, so it reverses exactly what the dry run showed")
@@ -597,16 +626,39 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 	// Pin both ends so the dry run's answer can be replayed exactly.
 	since := w.since.Format(time.RFC3339Nano)
 	until := w.until.Format(time.RFC3339Nano)
+	var checkpointRoot string
+	if byCheckpoint {
+		ref, err := c.Ref(ctx, a.Checkpoint)
+		var apiErr *client.Error
+		if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+			return nil, errors.New("no checkpoint named " + a.Checkpoint + "; save_checkpoint names one")
+		}
+		if err != nil {
+			return nil, err
+		}
+		checkpointRoot = ref
+		since = "checkpoint:" + checkpointRoot
+	}
 	root, err := c.Root(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// First pass: the actor's events in the window, and the entities they touch.
+	// First pass: the events to reverse, and the entities they touch. With a
+	// checkpoint, those are the events after the checkpoint's root.
 	var targets []client.Event
 	entities := map[string]bool{}
+	afterCheckpoint := !byCheckpoint
 	err = c.ReplayTo(ctx, root, func(ev client.Event) error {
-		if ev.Actor == a.Actor && w.contains(ev.CreatedAt) && (a.EntityID == "" || ev.EntityID == a.EntityID) {
+		if !afterCheckpoint {
+			afterCheckpoint = ev.EventID == checkpointRoot
+			return nil
+		}
+		inWindow := ev.CreatedAt.Before(w.until) || ev.CreatedAt.Equal(w.until)
+		if !byCheckpoint {
+			inWindow = w.contains(ev.CreatedAt)
+		}
+		if (a.Actor == "" || ev.Actor == a.Actor) && inWindow && (a.EntityID == "" || ev.EntityID == a.EntityID) {
 			targets = append(targets, ev)
 			entities[ev.EntityID] = true
 		}
@@ -614,6 +666,9 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 	})
 	if err != nil {
 		return nil, err
+	}
+	if !afterCheckpoint {
+		return nil, errors.New("checkpoint " + a.Checkpoint + " is not in this store's history")
 	}
 	// Second pass: all events for those entities, so retractions made since are seen.
 	evs, err := entityEvents(ctx, c, root, entities)
@@ -628,13 +683,18 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 
 	var plan []reversal
 	var skips []skipped
+	// planned holds the events this undo reverses. Targets are walked newest
+	// first, so a retraction is settled before the fact it withdrew: when that
+	// retraction is reversed here, the fact is reversed too, or it would come
+	// back.
+	planned := map[string]bool{}
 	for i := len(targets) - 1; i >= 0; i-- {
 		ev := targets[i]
 		payload := payloads[ev.EventID]
 		switch {
 		case !facts.IsFact(payload):
 			skips = append(skips, skipped{Hash: ev.EventID, EntityID: ev.EntityID, Type: ev.Type, Reason: "not a fact event; undo it with the tool that wrote it"})
-		case withdrawn[ev.EventID] != "":
+		case withdrawn[ev.EventID] != "" && !planned[withdrawn[ev.EventID]]:
 			skips = append(skips, skipped{Hash: ev.EventID, EntityID: ev.EntityID, Type: ev.Type, Reason: "already reversed by " + withdrawn[ev.EventID]})
 		default:
 			var p facts.Payload
@@ -646,6 +706,7 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 				kind = "correction"
 			}
 			plan = append(plan, reversal{Hash: ev.EventID, EntityID: ev.EntityID, Kind: kind, Predicate: p.Predicate, Value: p.Value, CreatedAt: ev.CreatedAt})
+			planned[ev.EventID] = true
 		}
 	}
 	if plan == nil {
@@ -656,23 +717,34 @@ func undoChanges(ctx context.Context, c *client.Client, raw json.RawMessage) (an
 	}
 	planID := undoPlanID(a.Actor, a.EntityID, since, until, plan)
 	out := map[string]any{
-		"actor": a.Actor, "since": since, "until": until, "root": root,
+		"actor": a.Actor, "until": until, "root": root,
 		"skipped": skips, "count": len(plan), "plan_id": planID,
+	}
+	again := "the same actor, the since and until values above"
+	if byCheckpoint {
+		out["checkpoint"], out["checkpoint_root"] = a.Checkpoint, checkpointRoot
+		again = "the same checkpoint, actor and the until value above"
+	} else {
+		out["since"] = since
 	}
 	if !a.Confirm {
 		out["dry_run"] = true
 		out["would_reverse"] = plan
 		if len(plan) > 0 {
-			out["next"] = "Call undo_changes again with the same actor, the since and until values above, plan_id " + planID + " and confirm: true, to write these reversals."
+			out["next"] = "Call undo_changes again with " + again + ", plan_id " + planID + " and confirm: true, to write these reversals."
 		}
 		return out, nil
 	}
 	if a.PlanID != "" && a.PlanID != planID {
-		return nil, errors.New("the changes in this window are no longer what the dry run showed (plan_id does not match); run undo_changes again without confirm to review them")
+		return nil, errors.New("the changes to reverse are no longer what the dry run showed (plan_id does not match); run undo_changes again without confirm to review them")
 	}
 
 	reason := strings.TrimSpace(a.Reason)
-	if reason == "" {
+	switch {
+	case reason != "":
+	case byCheckpoint:
+		reason = "restore checkpoint " + a.Checkpoint
+	default:
 		reason = "undo changes by " + a.Actor
 	}
 	after := root

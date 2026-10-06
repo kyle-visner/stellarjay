@@ -54,13 +54,13 @@ on their own.
 
 | Tool | What it does | Writes |
 |---|---|---|
-| `record_fact` | Save a business fact with its evidence | yes |
-| `correct_fact` | Replace an earlier fact; the old one stays in history | yes |
+| `record_fact` | Save a business fact with its evidence, including a value that has changed since | yes |
+| `correct_fact` | Replace a fact that was wrong when recorded; the old one stays in history | yes |
 | `retract_fact` | Withdraw a fact with a reason | yes |
 | `get_entity` | Current facts and full history for one entity | no |
 | `list_changes` | What changed in a time window, by agent or entity | no |
-| `undo_changes` | Preview, then reverse everything an agent did in a window | yes |
-| `save_checkpoint` | Name the current state, such as `before-import` | yes |
+| `undo_changes` | Preview, then reverse everything an agent did in a window, or restore a checkpoint | yes |
+| `save_checkpoint` | Name the current state, such as `before-import`, to restore with `undo_changes` | yes |
 | `status` | Store health, current root, whether it holds any facts, and the caller's actor name | no |
 
 Write tools are marked `destructiveHint: false`: nothing is overwritten or
@@ -97,6 +97,15 @@ because it would move between the two calls) and should pass the `plan_id`;
 if the changes in the window are no longer the ones previewed, it refuses and
 writes nothing. The confirmed result's `root` is the store after the
 reversals, and `root_before` is the root the plan was made against.
+
+To restore a checkpoint saved with `save_checkpoint`, pass `checkpoint` instead
+of `since`. That reverses every fact event after the checkpoint, from every
+actor unless `actor` is given, so the facts read as they did at the checkpoint.
+The dry run returns `checkpoint_root`, `until` and `plan_id`; the confirmed call
+passes the same `checkpoint` with that `until` and `plan_id`. When an undo
+reverses a retraction, it also reverses the fact that retraction withdrew if
+that fact is in the same undo, so a fact added and retracted inside the window
+stays gone.
 
 `status` reports `empty: true` until the store holds a business fact, so
 setup events such as a workspace being initialized do not count. Hosts can
