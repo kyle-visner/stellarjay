@@ -74,8 +74,8 @@ Stellar Jay is built so that can't happen:
 - **Your data stays flexible.** Facts are JSON, so new fields and new kinds of
   records need no migrations.
 
-Stellar Jay records what agents say happened. It doesn't decide whether a fact
-is true; it makes sure a wrong one stays visible and correctable.
+Every fact keeps its evidence and the agent that recorded it, so any wrong one
+is visible, attributed and correctable.
 
 ## Who it's for
 
@@ -161,17 +161,17 @@ docker compose up -d --build
 curl https://stellarjay.example.com/health/ready
 ```
 
-`init` will not replace existing secrets. Read the
-[operations runbook](docs/operations.md) for backups, token rotation, and
-upgrades, and the [security model](docs/security.md) before storing sensitive
-data. Or skip all of this and use [AvianSuite](https://aviansuite.com).
+`init` will not replace existing secrets. The
+[operations runbook](docs/operations.md) covers backups, token rotation and
+upgrades, and the [security model](docs/security.md) covers keys, roles and
+hardening. Or skip all of this and use [AvianSuite](https://aviansuite.com).
 
 ## Documentation
 
 - [llm.md](llm.md): the guide agents follow to read and write safely
 - [docs/mcp.md](docs/mcp.md): MCP server setup and tools
-- [docs/how-it-works.md](docs/how-it-works.md): storage model, design limits,
-  and the embedded Go library
+- [docs/how-it-works.md](docs/how-it-works.md): storage model, deployment and
+  the embedded Go library
 - [docs/api.md](docs/api.md): HTTP API reference ([OpenAPI](docs/openapi.json))
 - [docs/architecture.md](docs/architecture.md), [docs/security.md](docs/security.md),
   [docs/operations.md](docs/operations.md): running it in production

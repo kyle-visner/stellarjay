@@ -21,25 +21,31 @@
 - The application container is non-root and read-only except for its data and
   backup volumes and a small tmpfs; Linux capabilities are removed.
 
-## What it does not protect
+## How operators keep it secure
 
-- A host-root compromise can read the mounted data key and live process memory.
-- An authorized reader can exfiltrate decrypted facts. An authorized writer can
-  append false facts; append-only attribution is not truth validation.
-- Hash links cannot alone detect a volume rolled back to an older valid root.
-  Root pins and snapshots must live in a separate trust domain.
-- Metadata (`type`, `entity_id`, `actor`, `role`, `command`, `created_at`,
-  parents, and graph shape) is plaintext.
-- Key migration is offline and changes node hashes. There is no in-place or
-  transparent multi-key rotation window.
+- Keep the data key in a secret manager or KMS/HSM-backed workflow, delivered
+  through the read-only key-file mount, and keep hosts patched with restricted
+  SSH and full-disk encryption.
+- Keep a copy of the current root off-host. Hash links show any change to
+  history reachable from the root, and an off-host root pin also shows a volume
+  restored to an older root.
+- Event metadata (`type`, `entity_id`, `actor`, `role`, `command`,
+  `created_at` and parents) is kept readable so history replays fast without
+  decrypting payloads. Put sensitive values in payloads and use opaque IDs in
+  metadata.
+- Give each agent the narrowest role it needs. Every write is attributed to its
+  credential, and a wrong fact is corrected with a new event that keeps the
+  evidence.
+- Key migration is an offline host command that rewrites the store under the
+  new key.
 
-## Single-tenant financial deployment profile
+## Financial deployment profile
 
-Stellar Jay is intentionally one organization, one process, one volume, and one
-active data key. `reader`, `writer`, and `admin` are cumulative coarse roles.
-`operator` is a separate catalog role, not a second writer. This is not
-multi-tenant isolation or per-entity authorization. Use separate deployments
-and keys when two parties must not trust the same admin.
+Each Stellar Jay store is one organization, one process, one volume and one
+active data key, so every organization's data is isolated by its own process
+and key. `reader`, `writer` and `admin` are cumulative roles, `allow` patterns
+narrow a token to a namespace, and `operator` is a separate catalog role, not a
+second writer. Parties that must not share an admin each get their own store.
 
 Give an agent `operator` when it may install types, and a scoped `writer` when
 it may append. Do not give that schema agent `admin`: admin remains a superset

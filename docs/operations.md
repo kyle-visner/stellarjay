@@ -35,7 +35,7 @@ curl -fsS -X POST \
 
 The response names an archive in `/var/backups/stellarjay` inside the Stellar Jay
 container. Copy it to a different machine, account, or object-storage service.
-A snapshot left only in the local Docker volume is not a backup.
+That off-host copy is your backup.
 
 `STELLARJAY_SNAPSHOT_RETENTION` (default `24`) bounds the managed local archives.
 After each successful snapshot, Stellar Jay deletes the oldest matching
@@ -196,9 +196,9 @@ fails, Stellar Jay preserves the completed destination and emits its JSON migrat
 manifest before the CLI exits nonzero. Inspect and verify that destination rather
 than deleting it automatically. Retry into a nonexistent directory only after
 confirming that the earlier path is absent or intentionally retained.
-Re-encryption limits future exposure; it cannot undo access to the compromised
-old key. A KMS/HSM should unwrap into the existing read-only key-file mount,
-never onto the data volume.
+Re-encryption protects everything stored from then on under the new key; rotate
+any credentials the old key's holder could have used as well. A KMS/HSM should
+unwrap into the existing read-only key-file mount, never onto the data volume.
 
 ## Restore drill
 
