@@ -63,8 +63,11 @@ on their own.
 | `save_checkpoint` | Name the current state, such as `before-import`, to restore with `undo_changes` | yes |
 | `status` | Store health, current root, whether it holds any facts, and the caller's actor name | no |
 
-Write tools are marked `destructiveHint: false`: nothing is overwritten or
+Every tool declares `readOnlyHint`, `destructiveHint` and `openWorldHint`.
+Fact writes are marked `destructiveHint: false`: nothing is overwritten or
 deleted, so an undo is itself a new change that can be undone.
+`save_checkpoint` is marked `destructiveHint: true`, because saving an
+existing name moves that checkpoint to the current state.
 
 ## How writes work
 

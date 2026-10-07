@@ -23,14 +23,19 @@ type tool struct {
 	Description string
 	Schema      map[string]any
 	ReadOnly    bool
+	// Destructive marks a write that replaces earlier state rather than
+	// appending to it.
+	Destructive bool
 	run         func(context.Context, *client.Client, json.RawMessage) (any, error)
 }
 
 func (t tool) descriptor() map[string]any {
-	annotations := map[string]any{"title": t.Title, "readOnlyHint": t.ReadOnly, "openWorldHint": false}
-	if !t.ReadOnly {
-		// Writes append; nothing is overwritten or deleted.
-		annotations["destructiveHint"] = false
+	// App directories require all three hints as explicit booleans.
+	annotations := map[string]any{
+		"title":           t.Title,
+		"readOnlyHint":    t.ReadOnly,
+		"destructiveHint": t.Destructive,
+		"openWorldHint":   false,
 	}
 	return map[string]any{
 		"name": t.Name, "title": t.Title, "description": t.Description,
@@ -165,7 +170,7 @@ func toolset() []tool {
 			run: undoChanges,
 		},
 		{
-			Name: "save_checkpoint", Title: "Save a checkpoint",
+			Name: "save_checkpoint", Title: "Save a checkpoint", Destructive: true,
 			Description: "Use before a risky job, such as an import, to name the current state (for example before-import). " +
 				"To go back to it later, call undo_changes with checkpoint set to this name. " +
 				"Saving an existing name moves it to the current state. Saving a checkpoint never changes any facts.",

@@ -142,9 +142,14 @@ func TestToolsListAdvertisesSafeWriteHints(t *testing.T) {
 		if tool.Name != want[i] || !strings.HasPrefix(tool.Description, "Use ") {
 			t.Fatalf("tool %d = %s: %q", i, tool.Name, tool.Description)
 		}
-		readOnly := tool.Annotations["readOnlyHint"] == true
-		if !readOnly && tool.Annotations["destructiveHint"] != false {
-			t.Fatalf("write tool %s must set destructiveHint false", tool.Name)
+		for _, hint := range []string{"readOnlyHint", "destructiveHint", "openWorldHint"} {
+			if _, ok := tool.Annotations[hint].(bool); !ok {
+				t.Fatalf("tool %s must set %s as a boolean: %v", tool.Name, hint, tool.Annotations)
+			}
+		}
+		destructive := tool.Name == "save_checkpoint"
+		if tool.Annotations["destructiveHint"] != destructive {
+			t.Fatalf("tool %s destructiveHint = %v, want %v", tool.Name, tool.Annotations["destructiveHint"], destructive)
 		}
 	}
 }
